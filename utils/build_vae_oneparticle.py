@@ -28,14 +28,14 @@ def make_encoder_oneparticle(data_inputs,
     
     vm_z_mean_x = tfkl.Dense(latent_dims_circle, name='vm_z_mean_x',activation=None)(layer)
     vm_z_mean_x = tfkl.BatchNormalization(renorm=True,
-                                          momentum=0.9999,
-                                          renorm_momentum=0.9999,
+                                          momentum=0.999,
+                                          renorm_momentum=0.999,
                                           renorm_clipping={'rmax':3.,'rmin':1./3,'dmax':5.}
                                          )(vm_z_mean_x)
     vm_z_mean_y = tfkl.Dense(latent_dims_circle, name='vm_z_mean_y',activation=None)(layer)
     vm_z_mean_y = tfkl.BatchNormalization(renorm=True,
-                                          momentum=0.9999,
-                                          renorm_momentum=0.9999,
+                                          momentum=0.999,
+                                          renorm_momentum=0.999,
                                           renorm_clipping={'rmax':3.,'rmin':1./3,'dmax':5.}
                                          )(vm_z_mean_y)
     vm_z_mean = tf.atan2(vm_z_mean_x,vm_z_mean_y)
@@ -91,7 +91,8 @@ def make_vae_oneparticle(real_dim = 2,
                          latent_dims_line = 1,
                          latent_dims_circle = 1,
                          optimizer = tfk.optimizers.Adam(lr=0.001,clipnorm=0.1),
-                         loss_type = "2D"):
+                         loss_type = "2D",
+                        dense_sizes = [64,64,64]):
     
     latent_dim = latent_dims_line + latent_dims_circle
     
