@@ -12,7 +12,8 @@ def make_encoder_oneparticle(data_inputs,
                              dense_sizes = [64,64,64],
                              latent_dims_line = 1,
                              latent_dims_circle = 1,
-                             real_dim=2):
+                             real_dim=2,
+                             output_vm_log_var = False):
     
     layer = data_inputs
     
@@ -41,21 +42,21 @@ def make_encoder_oneparticle(data_inputs,
 #     vm_z_mean = tfkl.Dense(latent_dims_circle, name='vm_z_mean_y',activation=None)(layer)
     
     #exp threshold
-    up_thresh = 1.0
-    low_thresh = -30
-    half_thresh_diff = (up_thresh - low_thresh)/2
-    cprime = np.arctanh((half_thresh_diff-up_thresh)/half_thresh_diff)
+#     up_thresh = 1.0
+#     low_thresh = -30
+#     half_thresh_diff = (up_thresh - low_thresh)/2
+#     cprime = np.arctanh((half_thresh_diff-up_thresh)/half_thresh_diff)
     vm_z_log_var = tfkl.Dense(latent_dims_circle, name='vm_z_log_var',activation=None)(layer)
-    vm_z_log_var = tfkl.Lambda(lambda x:  x/half_thresh_diff+cprime)(vm_z_log_var)
-    vm_z_log_var = tfkl.Activation('tanh')(vm_z_log_var)
-    vm_z_log_var = tfkl.Lambda(lambda x:  x*half_thresh_diff + up_thresh - half_thresh_diff)(vm_z_log_var)
+#     vm_z_log_var = tfkl.Lambda(lambda x:  x/half_thresh_diff+cprime)(vm_z_log_var)
+#     vm_z_log_var = tfkl.Activation('tanh')(vm_z_log_var)
+#     vm_z_log_var = tfkl.Lambda(lambda x:  x*half_thresh_diff + up_thresh - half_thresh_diff)(vm_z_log_var)
 
     layer = tf.stack([gauss_z_mean,gauss_z_log_var])
     gauss = tfpl.DistributionLambda(make_distribution_fn = lambda t: tfd.MultivariateNormalDiag(t[0],tf.exp(t[1]/2)),
                                     name="gauss_distribution")(layer)
     
     layer = tf.stack([vm_z_mean,vm_z_log_var])
-    vonmis = tfpl.DistributionLambda(make_distribution_fn = lambda t: tfd.VonMises(t[0],tf.exp(-t[1])),
+    vonmis = tfpl.DistributionLambda(make_distribution_fn = lambda t: tfd.VonMises(t[0],tf.where(t[1]<0.,tf.exp(-t[1])-1.,0.)),
                                      name="vm_distribution")(layer)
     
     centers = tfkl.Concatenate()([gauss_z_mean, vm_z_mean])
@@ -63,8 +64,12 @@ def make_encoder_oneparticle(data_inputs,
     samples = tfkl.Concatenate()([gauss,vonmis])
     
     encoder = tf.keras.Model(data_inputs,[centers,log_vars,samples])
-
-    return encoder, [gauss, vonmis]
+    
+                                     
+    if output_vm_log_var:
+        return encoder, [gauss, vonmis], vm_z_log_var
+    else:
+        return encoder, [gauss, vonmis]
 
 def make_decoder_oneparticle(latent_dim = 1,
                              dense_sizes = [64,64,64],
@@ -93,11 +98,12 @@ def make_vae_oneparticle(real_dim = 2,
     data_inputs = tfk.Input(shape=(real_dim,))
     beta_inputs = tfk.Input(shape=(1,))
     
-    encoder, distributions = make_encoder_oneparticle(data_inputs,
+    encoder, distributions, vm_log_var  = make_encoder_oneparticle(data_inputs,
                                                       latent_dims_line = latent_dims_line,
                                                       latent_dims_circle = latent_dims_circle,
                                                       real_dim = real_dim,
-                                                      dense_sizes = [64,64,64])
+                                                      dense_sizes = [64,64,64],
+                                                     output_vm_log_var = True)
     
     gauss, vonmis = distributions
     
@@ -128,8 +134,10 @@ def make_vae_oneparticle(real_dim = 2,
             ones = tf.fill(tf.shape(gauss),1.)
             standard_normal = tfd.MultivariateNormalDiag(loc=zeros,scale_diag=ones)
             kl_loss_gauss = gauss.kl_divergence(other=standard_normal)
+            
+            extra_term = tf.reduce_sum(tf.where(vm_log_var>0,tf.exp(vm_log_var),0.),axis=-1)
 
-            return tf.reduce_mean(recon_loss/beta**2 + kl_loss_vm + kl_loss_gauss)
+            return tf.reduce_mean(recon_loss/beta**2 + kl_loss_vm + kl_loss_gauss+extra_term)
         return vae_loss
     
     def recon_loss(x, x_decoded_mean):
