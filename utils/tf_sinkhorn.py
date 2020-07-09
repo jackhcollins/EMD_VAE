@@ -136,6 +136,7 @@ def sinkhorn_knopp_tf(a, b, M, reg, adaptive_min=None, numItermax=1000, stopThr=
     
     return tf.cast(tf.expand_dims(u,-1)*K*tf.expand_dims(v,-2), tf.float32)
 
+
 def sinkhorn_knopp_tf_64(a, b, M, reg, adaptive_min=None, numItermax=1000, stopThr=1e-9, verbose=False, **kwargs):
     M = tf.cast(M, tf.float64)
     a = tf.cast(a, tf.float64)
@@ -158,12 +159,14 @@ def sinkhorn_knopp_tf_64(a, b, M, reg, adaptive_min=None, numItermax=1000, stopT
     uprev = tf.fill(tf.shape(a),np.float64(1.))
     vprev = tf.fill(tf.shape(b),np.float64(1.))
     Kp = tf.expand_dims(1/a,-1)*K
-    
-    err = tf.Variable(1.,dtype=tf.float64)
-    cpt = tf.Variable(0)
-    
-    flag = tf.Variable(1)
-    
+
+    err = tf.Variable(1.,dtype=tf.float64,trainable=False)
+    cpt = tf.Variable(0,trainable=False)
+
+
+    flag = tf.Variable(1,trainable=False)
+
+
     mycond = lambda flag, err, cpt, Kp, u, v, uprev, vprev : tf.logical_and(tf.less(cpt, numItermax),tf.greater(err,stopThr))
 
 
@@ -185,7 +188,8 @@ def sinkhorn_knopp_tf_64(a, b, M, reg, adaptive_min=None, numItermax=1000, stopT
         error_cond = tf.logical_or(error_cond, tf.reduce_any(tf.math.equal(KtransposeU,0)))
         
         def error_function_true():
-            return tf.Variable(numItermax), uprev, vprev
+            #return tf.Variable(numItermax,trainable=False), uprev, vprev
+            return tf.Variable(numItermax,trainable=False,name='bob'), uprev, vprev
         def error_function_false():
             return cpt+1, u, v
         cpt, u, v = tf.cond(error_cond,error_function_true,error_function_false)
@@ -200,7 +204,7 @@ def sinkhorn_knopp_tf_64(a, b, M, reg, adaptive_min=None, numItermax=1000, stopT
             def stopthr_false():
                 return tf.reduce_max(newerr), flag + 1, cpt
             def stopthr_true():
-                return tf.reduce_max(newerr), flag + 1, tf.Variable(numItermax)
+                return tf.reduce_max(newerr), flag + 1, tf.Variable(numItermax,trainable=False,name='Alice')
             
             return tf.cond(stopthr_cond,stopthr_true,stopthr_false)
         
@@ -218,6 +222,105 @@ def sinkhorn_knopp_tf_64(a, b, M, reg, adaptive_min=None, numItermax=1000, stopT
     v = this[5]
     
     return tf.expand_dims(u,-1)*K*tf.expand_dims(v,-2)
+
+class sinkhorn_knopp_tf_64_class():
+    def __init__(self):
+        self.err = tf.Variable(1.,dtype=tf.float64,trainable=False,name='err')
+        self.cpt = tf.Variable(0,trainable=False,name='cpt')
+        self.flag = tf.Variable(1,trainable=False,name='flag')
+
+    def __call__(self,a, b, M, reg, adaptive_min=None, numItermax=1000, stopThr=1e-9, verbose=False, **kwargs):
+        M = tf.cast(M, tf.float64)
+        a = tf.cast(a, tf.float64)
+        b = tf.cast(b, tf.float64)
+        if reg == 'adaptive':
+            maxd = tf.reduce_max(M,axis=[-1,-2])
+            if adaptive_min is None:
+                reg = maxd/np.float64(708.)
+            else:
+                reg = tf.maximum(maxd/np.float64(708.), np.float64(adaptive_min))
+                #reg = tf.maximum(maxd/np.float64(300.), np.float64(adaptive_min))
+            K = tf.exp(-M/tf.expand_dims(tf.expand_dims(reg,-1),-1))
+        else:
+            K = tf.exp(-M/reg)
+        #u = tf.ones(a.shape)/tf.reduce_sum(a,axis=-1,keepdims=True)
+        u = tf.fill(tf.shape(a),np.float64(1.))/tf.cast(tf.shape(a)[1],tf.float64)
+        v = tf.fill(tf.shape(b),np.float64(1.))/tf.cast(tf.shape(b)[1],tf.float64)
+    #     uprev = tf.fill(tf.shape(a),np.float64(1.))/tf.reduce_sum(a,axis=-1,keepdims=True)
+    #     vprev = tf.fill(tf.shape(b),np.float64(1.))/tf.reduce_sum(b,axis=-1,keepdims=True)
+        uprev = tf.fill(tf.shape(a),np.float64(1.))
+        vprev = tf.fill(tf.shape(b),np.float64(1.))
+        Kp = tf.expand_dims(1/a,-1)*K
+
+        # err = tf.Variable(1.,dtype=tf.float64,trainable=False)
+        # cpt = tf.Variable(0,trainable=False)
+
+
+        # flag = tf.Variable(1,trainable=False)
+
+        self.flag.assign(1)
+        self.cpt.assign(0)
+        self.err.assign(1.)
+
+        err = self.err
+        cpt = self.cpt
+        flag = self.flag
+        
+        mycond = lambda flag, err, cpt, Kp, u, v, uprev, vprev : tf.logical_and(tf.less(cpt, numItermax),tf.greater(err,stopThr))
+
+
+        def loopfn(flag, err, cpt, Kp, u, v, uprev, vprev):
+            uprev = u
+            vprev = v
+            
+            KtransposeU = tf.squeeze(tf.matmul(K,tf.expand_dims(u,-1),transpose_a=True),axis=-1)
+            v = b / KtransposeU
+            #u = 1/tf.squeeze(tf.matmul(Kp, tf.expand_dims(v,-1)),axis=-1)
+            u = a/tf.squeeze(tf.matmul(K, tf.expand_dims(v,-1)),axis=-1)
+            
+    #         error_cond = tf.reduce_any(tf.equal(KtransposeU,0))
+
+            error_cond = tf.reduce_any(tf.math.is_nan(u))
+            error_cond = tf.logical_or(error_cond, tf.reduce_any(tf.math.is_nan(v)))
+            error_cond = tf.logical_or(error_cond, tf.reduce_any(tf.math.is_inf(u)))
+            error_cond = tf.logical_or(error_cond, tf.reduce_any(tf.math.is_inf(v)))
+            error_cond = tf.logical_or(error_cond, tf.reduce_any(tf.math.equal(KtransposeU,0)))
+            
+            def error_function_true():
+                #return tf.Variable(numItermax,trainable=False), uprev, vprev
+                return tf.constant(numItermax), uprev, vprev
+            def error_function_false():
+                return cpt+1, u, v
+            cpt, u, v = tf.cond(error_cond,error_function_true,error_function_false)
+
+            def cptmod10_true():
+                
+                tmp2 = tf.squeeze(tf.matmul(tf.expand_dims(u,-2),K),axis=1)*v
+                #tmp2 = tf.einsum('ai,aij,aj->aj', u, K, v)
+                newerr = tf.norm(tmp2-b,axis=-1)
+                stopthr_cond = tf.reduce_all(tf.less(newerr,stopThr))
+                
+                def stopthr_false():
+                    return tf.reduce_max(newerr), flag + 1, cpt
+                def stopthr_true():
+                    return tf.reduce_max(newerr), flag + 1, tf.constant(numItermax)
+                
+                return tf.cond(stopthr_cond,stopthr_true,stopthr_false)
+            
+            def cptmod10_false():
+                return err, flag, cpt
+            
+            cptmod10_cond = tf.equal(tf.math.floormod(cpt,10),0)
+            err, flag, cpt = tf.cond(cptmod10_cond,cptmod10_true,cptmod10_false)
+            
+            return flag, err, cpt, Kp, u, v, uprev, vprev
+        
+        this = tf.while_loop(mycond, loopfn,[flag, err, cpt,  Kp, u, v, uprev, vprev])
+
+        u = this[4]
+        v = this[5]
+        
+        return tf.expand_dims(u,-1)*K*tf.expand_dims(v,-2)
 
 
 def sinkhorn_knopp_tf_scaling_64(a, b, M, reg_start, reg_end, numsteps=5, adaptive_min=None, numItermaxinner=10, stopThr=1e-9, verbose=False, **kwargs):
@@ -254,11 +357,11 @@ def sinkhorn_knopp_tf_scaling_64(a, b, M, reg_start, reg_end, numsteps=5, adapti
     vprev = tf.fill(tf.shape(b),np.float64(1.))
     #Kp = tf.expand_dims(1/a,-1)*K
     
-    err = tf.Variable(1.,dtype=tf.float64)
-    cpt = tf.Variable(0)
-    cpt_outer = tf.Variable(0)
+    err = tf.Variable(1.,dtype=tf.float64, name="err")
+    cpt = tf.Variable(0,name="cpt")
+    cpt_outer = tf.Variable(0,name='cpt_outer')
     
-    flag = tf.Variable(1)
+    flag = tf.Variable(1,name='flag')
     
     mycond = lambda flag, err, cpt, u, v, uprev, vprev, K, reg, cpt_outer : tf.logical_and(tf.less(cpt, numItermax),tf.greater(err,stopThr))
 
@@ -337,8 +440,11 @@ def ground_distance_tf_old(pointsa,pointsb,return_gradients=False,clip=True,epsi
 
 def ground_distance_tf(pointsa,pointsb,epsilon=1e-8, mod2pi=True):
     
-    a_dim = pointsa.shape[-2]
-    b_dim = pointsb.shape[-2]
+    # a_dim = pointsa.shape[-2]
+    # b_dim = pointsb.shape[-2]
+
+    a_dim = tf.shape(pointsa)[-2]
+    b_dim = tf.shape(pointsb)[-2]
     
     amat = tf.tile(tf.expand_dims(pointsa,2),[1,1,b_dim,1])
     bmat = tf.tile(tf.expand_dims(pointsb,1),[1,a_dim,1,1])
