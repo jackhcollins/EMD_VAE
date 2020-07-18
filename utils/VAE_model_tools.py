@@ -1,6 +1,12 @@
 import tensorflow as tf
 import tensorflow.keras as keras
 from tensorflow.python.keras.engine.training import enable_multi_worker
+from tensorflow.keras.layers import Input, Dense, Activation, BatchNormalization
+from tensorflow.keras.layers import Conv1D
+from tensorflow.keras.layers import Flatten, Reshape, Lambda
+from tensorflow.keras.utils import plot_model
+from tensorflow.keras import Model
+from utils.tf_sinkhorn import ground_distance_tf_nograd, sinkhorn_knopp_tf_scaling_stabilized_class
 
 
 
@@ -86,8 +92,8 @@ def build_and_compile_annealing_vae(encoder_conv_layers = [256,256,256,256],
                                     EPSILON = 1e-6,
                                     num_particles_in = 100,
                                     check_err_period = 10):
-    
 
+    cat_dim = 32
     
     def sampling_gauss(args):
         """Reparameterization trick by sampling fr an isotropic unit Gaussian.
@@ -100,20 +106,20 @@ def build_and_compile_annealing_vae(encoder_conv_layers = [256,256,256,256],
         """
 
         z_mean, z_log_var = args
-        batch = K.shape(z_mean)[0]
-        dim = K.int_shape(z_mean)[1]
+        batch = tf.shape(z_mean)[0]
+        dim = keras.backend.int_shape(z_mean)[1]
         # by default, random_normal has mean=0 and std=1.0
-        epsilon = K.random_normal(shape=(batch, dim))
-        return z_mean + K.exp(0.5 * z_log_var) * epsilon
+        epsilon = tf.random.normal(shape=(batch, dim))
+        return z_mean + tf.math.exp(0.5 * z_log_var) * epsilon
     
     def sampling_bern(theta):
 
-        batch = K.shape(theta)[0]
-        dim = K.int_shape(theta)[1]
+        batch = tf.shape(theta)[0]
+        dim = keras.backend.int_shape(theta)[1]
         # by default, random_normal has mean=0 and std=1.0
-        epsilon = K.random_uniform(shape=(batch, dim),maxval=1-EPSILON,minval=EPSILON)
-        #return (K.log(epsilon) - K.log(1-epsilon) + K.log(theta+EPSILON) - K.log(1-theta+EPSILON))/temp
-        return (K.log(epsilon) - K.log(1-epsilon) + K.log(theta+EPSILON))/temp
+        epsilon = tf.random.uniform(shape=(batch, dim),maxval=1-EPSILON,minval=EPSILON)
+        #return (tf.math.log(epsilon) - tf.math.log(1-epsilon) + tf.math.log(theta+EPSILON) - tf.math.log(1-theta+EPSILON))/temp
+        return (tf.math.log(epsilon) - tf.math.log(1-epsilon) + tf.math.log(theta+EPSILON))/temp
     
     #Encoder
     inputs = tf.keras.Input(shape=(num_particles_in,4,), name='inputs')
