@@ -306,7 +306,7 @@ def build_and_compile_annealing_vae(encoder_conv_layers = [256,256,256,256],
     def kl_loss_bern_individual(r):
         delta = 1-r
         is_small = tf.less(tf.abs(delta),1e-5)
-        default_return = (1+r)*tf.math.log(r)/(r-1)
+        default_return = (1+r)*tf.math.log(r)/(r-1) - 2
         to_return = tf.where(is_small,tf.square(delta)/6,default_return)
 
         def grad(dL):
