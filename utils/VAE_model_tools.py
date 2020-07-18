@@ -8,12 +8,18 @@ from tensorflow.keras.utils import plot_model
 from tensorflow.keras import Model
 from utils.tf_sinkhorn import ground_distance_tf_nograd, sinkhorn_knopp_tf_scaling_stabilized_class
 
+import numpy as np
+
 
 
 loss_tracker = keras.metrics.Mean(name="loss")
 recon_loss_tracker = keras.metrics.Mean(name="recon_loss")
 KL_loss_tracker = keras.metrics.Mean(name="KL_loss")
 KL_bern_loss_tracker = keras.metrics.Mean(name="KL_bern_loss")
+val_loss_tracker = keras.metrics.Mean(name="val_loss")
+val_recon_loss_tracker = keras.metrics.Mean(name="val_recon_loss")
+val_KL_loss_tracker = keras.metrics.Mean(name="val_KL_loss")
+val_KL_bern_loss_tracker = keras.metrics.Mean(name="val_KL_bern_loss")
 
 class betaVAEModel(keras.Model):
 
@@ -28,6 +34,7 @@ class betaVAEModel(keras.Model):
                 KL_loss=None,
                 KL_loss_bern=None,
                 **kwargs):
+
         self.compile(optimizer=optimizer,
                     #loss=loss,
                     metrics=metrics,
@@ -40,6 +47,9 @@ class betaVAEModel(keras.Model):
         self.KL_loss_bern = KL_loss_bern
         self.beta = tf.Variable(1.,trainable=False, name="beta")
         self.alpha = tf.Variable(1.,trainable=False, name="alpha")
+
+
+
     @tf.function
     def train_step(self, data):
         x, y = data
@@ -70,8 +80,32 @@ class betaVAEModel(keras.Model):
         return {"loss": loss_tracker.result(),
                 "recon_loss": recon_loss_tracker.result(),
                 "KL loss": KL_loss_tracker.result(),
-                "KL bern loss": KL_bern_loss_tracker.result()}
+                "KL bern loss": KL_bern_loss_tracker.result(),
+                "beta": self.beta,
+                "alpha": self.alpha}
 
+    @tf.function
+    def test_step(self, data):
+        # Unpack the data
+        x, y = data
+        # Compute predictions
+        y_pred ,z_mean, z_log_var, z, alpha_bern, z_bern_sigmoid = self(x, training=False)  # Forward pass
+        # Compute our own loss
+        recon_loss = self.recon_loss(y, y_pred)
+        KL_loss = self.KL_loss(z_mean, z_log_var)
+        KL_loss_bern = self.KL_loss_bern(alpha_bern)
+
+        val_loss_tracker.update_state(recon_loss/tf.square(self.beta) + KL_loss + self.alpha*KL_loss_bern)
+        val_recon_loss_tracker.update_state(recon_loss)
+        val_KL_loss_tracker.update_state(KL_loss)
+        val_KL_bern_loss_tracker.update_state(KL_loss_bern)
+
+        return {"val_loss": val_loss_tracker.result(),
+                "val_recon_loss": val_recon_loss_tracker.result(),
+                "val_KL loss": val_KL_loss_tracker.result(),
+                "val_KL bern loss": val_KL_bern_loss_tracker.result(),
+                "beta": self.beta,
+                "alpha": self.alpha}
 
 
 # https://arxiv.org/pdf/1611.00712.pdf
@@ -218,7 +252,7 @@ def build_and_compile_annealing_vae(encoder_conv_layers = [256,256,256,256],
             ground_distance = ground_distance_tf_nograd(x_in,x_out)
 
             match = sinkhorn_knopp_tf_inst(pt_in, pt_out, tf.stop_gradient(ground_distance))        
-            recon_loss = tf.linalg.trace(tf.matmul(tf.stop_gradient(match),ground_distance,transpose_b=True))
+            recon_loss = tf.linalg.trace(tf.matmul(tf.stop_gradient(tf.cast(match,tf.float32)),ground_distance,transpose_b=True))
             
             def grad(dL):
                 aones = tf.fill(tf.shape(pt_in),np.float64(1.))
@@ -265,7 +299,7 @@ def build_and_compile_annealing_vae(encoder_conv_layers = [256,256,256,256],
         return tf.reduce_mean(-0.5 * tf.reduce_sum(1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var), axis=-1))
 
 
-    prob_a = tf.constant(np.logspace(-3,np.log10(0.5),32))
+    prob_a = tf.constant(np.logspace(-3,np.log10(0.5),32),dtype=tf.float32)
     a = prob_a / (1-prob_a)
 
     @tf.custom_gradient
@@ -300,3 +334,13 @@ def build_and_compile_annealing_vae(encoder_conv_layers = [256,256,256,256],
     
     return vae, encoder, decoder
 
+class reset_metrics(keras.callbacks.Callback):
+    def on_epoch_begin(self, epoch, logs=None):
+        loss_tracker.reset_states()
+        recon_loss_tracker.reset_states()
+        KL_loss_tracker.reset_states()
+        KL_bern_loss_tracker.reset_states()
+        val_loss_tracker.reset_states()
+        val_recon_loss_tracker.reset_states()
+        val_KL_loss_tracker.reset_states()
+        val_KL_bern_loss_tracker.reset_states()
