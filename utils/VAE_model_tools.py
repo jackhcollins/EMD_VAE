@@ -8,6 +8,10 @@ from tensorflow.keras.utils import plot_model
 from tensorflow.keras import Model
 from utils.tf_sinkhorn import ground_distance_tf_nograd, sinkhorn_knopp_tf_scaling_stabilized_class
 
+import tensorflow_probability as tfp
+tfd = tfp.distributions
+tfpl = tfp.layers
+
 import numpy as np
 
 
@@ -15,11 +19,9 @@ import numpy as np
 loss_tracker = keras.metrics.Mean(name="loss")
 recon_loss_tracker = keras.metrics.Mean(name="recon_loss")
 KL_loss_tracker = keras.metrics.Mean(name="KL_loss")
-KL_bern_loss_tracker = keras.metrics.Mean(name="KL_bern_loss")
 val_loss_tracker = keras.metrics.Mean(name="val_loss")
 val_recon_loss_tracker = keras.metrics.Mean(name="val_recon_loss")
 val_KL_loss_tracker = keras.metrics.Mean(name="val_KL_loss")
-val_KL_bern_loss_tracker = keras.metrics.Mean(name="val_KL_bern_loss")
 
 class betaVAEModel(keras.Model):
 
@@ -32,7 +34,6 @@ class betaVAEModel(keras.Model):
                 weighted_metrics=None,
                 recon_loss=None,
                 KL_loss=None,
-                KL_loss_bern=None,
                 **kwargs):
 
         self.compile(optimizer=optimizer,
@@ -44,9 +45,7 @@ class betaVAEModel(keras.Model):
                     **kwargs)
         self.recon_loss = recon_loss
         self.KL_loss = KL_loss
-        self.KL_loss_bern = KL_loss_bern
         self.beta = tf.Variable(1.,trainable=False, name="beta")
-        self.alpha = tf.Variable(1.,trainable=False, name="alpha")
 
 
 
@@ -55,13 +54,12 @@ class betaVAEModel(keras.Model):
         x, y = data
 
         with tf.GradientTape() as tape:
-            y_pred ,z_mean, z_log_var, z, alpha_bern, z_bern_sigmoid = self(x, training=True)  # Forward pass
+            y_pred ,z_mean, z_log_var, z = self(x, training=True)  # Forward pass
             # Compute our own loss
             recon_loss = self.recon_loss(y, y_pred)
             KL_loss = self.KL_loss(z_mean, z_log_var)
-            KL_loss_bern = self.KL_loss_bern(alpha_bern)
 
-            loss = recon_loss/(tf.square(self.beta)) + KL_loss + self.alpha*KL_loss_bern
+            loss = recon_loss/(tf.square(self.beta)) + KL_loss
 
 
         # Compute gradients
@@ -75,43 +73,37 @@ class betaVAEModel(keras.Model):
         loss_tracker.update_state(loss)
         recon_loss_tracker.update_state(recon_loss)
         KL_loss_tracker.update_state(KL_loss)
-        KL_bern_loss_tracker.update_state(KL_loss_bern)
 
         return {"loss": loss_tracker.result(),
                 "recon_loss": recon_loss_tracker.result(),
                 "KL loss": KL_loss_tracker.result(),
-                "KL bern loss": KL_bern_loss_tracker.result(),
-                "beta": self.beta,
-                "alpha": self.alpha}
+                "beta": self.beta}
 
     @tf.function
     def test_step(self, data):
         # Unpack the data
         x, y = data
         # Compute predictions
-        y_pred ,z_mean, z_log_var, z, alpha_bern, z_bern_sigmoid = self(x, training=False)  # Forward pass
+        y_pred ,z_mean, z_log_var, z = self(x, training=False)  # Forward pass
         # Compute our own loss
         recon_loss = self.recon_loss(y, y_pred)
         KL_loss = self.KL_loss(z_mean, z_log_var)
-        KL_loss_bern = self.KL_loss_bern(alpha_bern)
 
-        val_loss_tracker.update_state(recon_loss/tf.square(self.beta) + KL_loss + self.alpha*KL_loss_bern)
+        val_loss_tracker.update_state(recon_loss/tf.square(self.beta) + KL_loss)
         val_recon_loss_tracker.update_state(recon_loss)
         val_KL_loss_tracker.update_state(KL_loss)
-        val_KL_bern_loss_tracker.update_state(KL_loss_bern)
 
         return {"val_loss": val_loss_tracker.result(),
                 "val_recon_loss": val_recon_loss_tracker.result(),
                 "val_KL loss": val_KL_loss_tracker.result(),
-                "val_KL bern loss": val_KL_bern_loss_tracker.result(),
-                "beta": self.beta,
-                "alpha": self.alpha}
+                "beta": self.beta}
+    
 
 
 # https://arxiv.org/pdf/1611.00712.pdf
 
 def build_and_compile_annealing_vae(encoder_conv_layers = [256,256,256,256],
-                                    dense_size = 256,
+                                    dense_size = [256,256,256,256],
                                     decoder = [512,256,256,256],
                                     verbose=0,dropout=0,
                                     latent_dim = 128,
@@ -125,38 +117,30 @@ def build_and_compile_annealing_vae(encoder_conv_layers = [256,256,256,256],
                                     temp = 0.3,
                                     EPSILON = 1e-6,
                                     num_particles_in = 100,
-                                    check_err_period = 10):
+                                    check_err_period = 10,
+                                    num_inputs = 4):
 
-    cat_dim = 32
+  
+#     def sampling_gauss(args):
+#         """Reparameterization trick by sampling fr an isotropic unit Gaussian.
+
+#         # Arguments
+#             args (tensor): mean and log of variance of Q(z|X)
+
+#         # Returns
+#             z (tensor): sampled latent vector
+#         """
+
+#         z_mean, z_log_var = args
+#         batch = tf.shape(z_mean)[0]
+#         dim = keras.backend.int_shape(z_mean)[1]
+#         # by default, random_normal has mean=0 and std=1.0
+#         epsilon = tf.random.normal(shape=(batch, dim))
+#         return z_mean + tf.math.exp(0.5 * z_log_var) * epsilon
     
-    def sampling_gauss(args):
-        """Reparameterization trick by sampling fr an isotropic unit Gaussian.
-
-        # Arguments
-            args (tensor): mean and log of variance of Q(z|X)
-
-        # Returns
-            z (tensor): sampled latent vector
-        """
-
-        z_mean, z_log_var = args
-        batch = tf.shape(z_mean)[0]
-        dim = keras.backend.int_shape(z_mean)[1]
-        # by default, random_normal has mean=0 and std=1.0
-        epsilon = tf.random.normal(shape=(batch, dim))
-        return z_mean + tf.math.exp(0.5 * z_log_var) * epsilon
-    
-    def sampling_bern(theta):
-
-        batch = tf.shape(theta)[0]
-        dim = keras.backend.int_shape(theta)[1]
-        # by default, random_normal has mean=0 and std=1.0
-        epsilon = tf.random.uniform(shape=(batch, dim),maxval=1-EPSILON,minval=EPSILON)
-        #return (tf.math.log(epsilon) - tf.math.log(1-epsilon) + tf.math.log(theta+EPSILON) - tf.math.log(1-theta+EPSILON))/temp
-        return (tf.math.log(epsilon) - tf.math.log(1-epsilon) + tf.math.log(theta+EPSILON))/temp
     
     #Encoder
-    inputs = tf.keras.Input(shape=(num_particles_in,4,), name='inputs')
+    inputs = tf.keras.Input(shape=(num_particles_in,num_inputs,), name='inputs')
 
     layer = inputs
 
@@ -169,43 +153,30 @@ def build_and_compile_annealing_vae(encoder_conv_layers = [256,256,256,256],
     # Sum layer
     layer = tf.keras.backend.sum(layer,axis=1)
 
-    # Dense layers 1
-    layer = Dense(dense_size,bias_initializer='glorot_uniform')(layer)
-    layer = keras.layers.ReLU()(layer)
-    layer = Dense(dense_size,bias_initializer='glorot_uniform')(layer)
-    layer = keras.layers.ReLU()(layer)
-
-    # Cat latent
-    alpha_bern = Dense(cat_dim, name='alpha_bern',bias_initializer='glorot_uniform')(layer)
-    alpha_bern = keras.layers.ELU()(alpha_bern)
-    alpha_bern = keras.layers.Lambda(lambda x: x + 1)(alpha_bern)
-#     alpha_bern = Activation('sigmoid')(alpha_bern)
-
-
-    z_bern = Lambda(sampling_bern, output_shape=(cat_dim,), name='z_bern')(alpha_bern)
-    z_bern_sigmoid = Activation('sigmoid')(z_bern)
-    
-    layer = tf.keras.layers.Concatenate()([layer,z_bern_sigmoid])
-
-    # Dense layers 2
-    layer = Dense(dense_size,bias_initializer='glorot_uniform')(layer)
-    layer = keras.layers.ReLU()(layer)
-    layer = Dense(dense_size,bias_initializer='glorot_uniform')(layer)
-    layer = keras.layers.ReLU()(layer)
-      
+    # Dense layers
+    for size in dense_size:
+        layer = Dense(size,bias_initializer='glorot_uniform')(layer)
+        layer = keras.layers.ReLU()(layer)
+     
     z_mean = Dense(latent_dim, name='z_mean',bias_initializer='glorot_uniform')(layer)
     z_log_var = Dense(latent_dim, name='z_log_var',bias_initializer='glorot_uniform')(layer)
-    z = Lambda(sampling_gauss, output_shape=(latent_dim,), name='z')([z_mean, z_log_var])
+    
+    
+    layer = tf.stack([z_mean,z_log_var])
+    z = tfpl.DistributionLambda(make_distribution_fn = lambda t: tfd.MultivariateNormalDiag(t[0],tf.exp(t[1]/2)),
+                                    name="encoder_gauss_distribution"#,dtype=precision
+                                   )(layer)
+    
+#     z = Lambda(sampling_gauss, output_shape=(latent_dim,), name='z')([z_mean, z_log_var])
 
-    encoder = Model(inputs, [z_mean, z_log_var, z, alpha_bern, z_bern_sigmoid], name='encoder')
+    encoder = Model(inputs, [z_mean, z_log_var, z], name='encoder')
     if verbose:
         encoder.summary()
     #plot_model(encoder, to_file='CNN-VAE_encoder.png', show_shapes=True)
 
     # Decoder
     latent_inputs_gauss = Input(shape=(latent_dim,), name='z_sampling')
-    latent_inputs_bern = Input(shape=(cat_dim,), name='z_sampling_bern')
-    layer = tf.keras.layers.Concatenate()([latent_inputs_gauss,latent_inputs_bern])
+    layer = latent_inputs_gauss
     #layer = latent_inputs
     
     for i, layer_size in enumerate(decoder):
@@ -224,14 +195,14 @@ def build_and_compile_annealing_vae(encoder_conv_layers = [256,256,256,256],
     layer_phi = tf.expand_dims(layer_phi,axis=-1)
     decoded = tf.keras.layers.Concatenate()([layer_pT,layer_eta,layer_phi])
 
-    decoder = Model([latent_inputs_gauss,latent_inputs_bern], decoded, name='decoder')
+    decoder = Model(latent_inputs_gauss, decoded, name='decoder')
     if verbose:
         decoder.summary()
     #plot_model(decoder, to_file='CNN-VAE_decoder.png', show_shapes=True)
 
 
-    outputs = decoder([encoder(inputs)[2], encoder(inputs)[4]])
-    vae = betaVAEModel(inputs, [outputs,z_mean, z_log_var, z, alpha_bern, z_bern_sigmoid], name='CNN-VAE')
+    outputs = decoder(encoder(inputs)[2])
+    vae = betaVAEModel(inputs, [outputs,z_mean, z_log_var, z], name='VAE')
 
 
     sinkhorn_knopp_tf_inst = sinkhorn_knopp_tf_scaling_stabilized_class(reg_init,
@@ -302,33 +273,14 @@ def build_and_compile_annealing_vae(encoder_conv_layers = [256,256,256,256],
     prob_a = tf.constant(np.logspace(-3,np.log10(0.5),32),dtype=tf.float32)
     a = prob_a / (1-prob_a)
 
-    @tf.custom_gradient
-    def kl_loss_bern_individual(r):
-        delta = 1-r
-        is_small = tf.less(tf.abs(delta),1e-5)
-        default_return = (1+r)*tf.math.log(r)/(r-1) - 2
-        to_return = tf.where(is_small,tf.square(delta)/6,default_return)
 
-        def grad(dL):
-            default_grad = (-1 + tf.square(r) - 2*r*tf.math.log(r))/(r*tf.square(r-1))
-            return tf.where(is_small, delta/3, default_grad) * dL
-
-        return to_return, grad
-
-    @tf.function
-    def kl_loss_bern(alpha_bern):
-        r = a/alpha_bern
-        kl_separate = kl_loss_bern_individual(r)
-        kl_summed = tf.reduce_sum(kl_separate,axis=-1)
-        return tf.reduce_mean(kl_summed)
 
     
     vae.betaVAE_compile(recon_loss=recon_loss,
                         KL_loss = kl_loss,
-                        KL_loss_bern = kl_loss_bern,
-                optimizer=optimizer,experimental_run_tf_function=False#,
-                #metrics = [recon_loss,kl_loss(beta_input), kl_loss_bern(beta_input)]
-               )
+                        optimizer=optimizer,experimental_run_tf_function=False#,
+                        #metrics = [recon_loss,kl_loss(beta_input), kl_loss_bern(beta_input)]
+                       )
     
     vae.summary()
     
@@ -339,8 +291,6 @@ class reset_metrics(keras.callbacks.Callback):
         loss_tracker.reset_states()
         recon_loss_tracker.reset_states()
         KL_loss_tracker.reset_states()
-        KL_bern_loss_tracker.reset_states()
         val_loss_tracker.reset_states()
         val_recon_loss_tracker.reset_states()
         val_KL_loss_tracker.reset_states()
-        val_KL_bern_loss_tracker.reset_states()
