@@ -19,9 +19,7 @@ import numpy as np
 loss_tracker = keras.metrics.Mean(name="loss")
 recon_loss_tracker = keras.metrics.Mean(name="recon_loss")
 KL_loss_tracker = keras.metrics.Mean(name="KL_loss")
-val_loss_tracker = keras.metrics.Mean(name="val_loss")
-val_recon_loss_tracker = keras.metrics.Mean(name="val_recon_loss")
-val_KL_loss_tracker = keras.metrics.Mean(name="val_KL_loss")
+
 
 class betaVAEModel(keras.Model):
 
@@ -89,13 +87,17 @@ class betaVAEModel(keras.Model):
         recon_loss = self.recon_loss(y, y_pred)
         KL_loss = self.KL_loss(z_mean, z_log_var)
 
-        val_loss_tracker.update_state(recon_loss/tf.square(self.beta) + KL_loss)
-        val_recon_loss_tracker.update_state(recon_loss)
-        val_KL_loss_tracker.update_state(KL_loss)
+        loss_tracker.reset_states()
+        recon_loss_tracker.reset_states()
+        KL_loss_tracker.reset_states()
+        
+        loss_tracker.update_state(recon_loss/tf.square(self.beta) + KL_loss)
+        recon_loss_tracker.update_state(recon_loss)
+        KL_loss_tracker.update_state(KL_loss)
 
-        return {"val_loss": val_loss_tracker.result(),
-                "val_recon_loss": val_recon_loss_tracker.result(),
-                "val_KL loss": val_KL_loss_tracker.result(),
+        return {"loss": loss_tracker.result(),
+                "recon_loss": recon_loss_tracker.result(),
+                "KL loss": KL_loss_tracker.result(),
                 "beta": self.beta}
     
 
