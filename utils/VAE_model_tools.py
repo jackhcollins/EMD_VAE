@@ -159,6 +159,8 @@ def build_and_compile_annealing_vae(encoder_conv_layers = [256,256,256,256],
     for size in dense_size:
         layer = Dense(size,bias_initializer='glorot_uniform')(layer)
         layer = keras.layers.ReLU()(layer)
+        if dropout > 0:
+            layer = keras.layers.Dropout(dropout)(layer)
      
     z_mean = Dense(latent_dim, name='z_mean',bias_initializer='glorot_uniform')(layer)
     z_log_var = Dense(latent_dim, name='z_log_var',bias_initializer='glorot_uniform')(layer)
