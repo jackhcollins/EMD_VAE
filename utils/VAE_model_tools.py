@@ -57,7 +57,7 @@ class betaVAEModel(keras.Model):
             recon_loss = self.recon_loss(y, y_pred)
             KL_loss = self.KL_loss(z_mean, z_log_var)
 
-            loss = recon_loss/(tf.square(self.beta)) + KL_loss
+            loss = recon_loss/(2*tf.square(self.beta)) + KL_loss
 
 
         # Compute gradients
@@ -91,7 +91,7 @@ class betaVAEModel(keras.Model):
         recon_loss_tracker.reset_states()
         KL_loss_tracker.reset_states()
         
-        loss_tracker.update_state(recon_loss/tf.square(self.beta) + KL_loss)
+        loss_tracker.update_state(recon_loss/(2*tf.square(self.beta)) + KL_loss)
         recon_loss_tracker.update_state(recon_loss)
         KL_loss_tracker.update_state(KL_loss)
 
@@ -150,7 +150,7 @@ def build_and_compile_annealing_vae(encoder_conv_layers = [256,256,256,256],
         layer = Conv1D(layer_size,1,bias_initializer='glorot_uniform')(layer)
         layer = keras.layers.ReLU()(layer)
         if dropout > 0:
-            layer = keras.layers.Dropout(dropout)(layer)
+            layer = keras.layers.Dropout(dropout,noise_shape=(None,1,layer_size))(layer)
     
     # Sum layer
     layer = tf.keras.backend.sum(layer,axis=1)
