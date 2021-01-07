@@ -115,7 +115,7 @@ class betaVAEModel(keras.Model):
                 KL_loss_VM = tf.reduce_mean(tf.reduce_sum(losses[:,self.latent_dims_line:],axis=-1))
             else:
                 KL_loss_VM = tf.constant(0.)
-            loss = recon_loss/(tf.square(tf.cast(self.beta,self.use_dtype))) + tf.cast(KL_loss,self.use_dtype) + tf.cast(self.alpha,self.use_dtype)*tf.cast(KL_loss_VM,self.use_dtype)
+            loss = recon_loss/(2.*tf.square(tf.cast(self.beta,self.use_dtype))) + tf.cast(KL_loss,self.use_dtype) + tf.cast(self.alpha,self.use_dtype)*tf.cast(KL_loss_VM,self.use_dtype)
             # loss = recon_loss + tf.cast(KL_loss,self.use_dtype) *(tf.square(tf.cast(self.beta,self.use_dtype)))+ tf.cast(self.alpha,self.use_dtype)*tf.cast(KL_loss_VM,self.use_dtype)*(tf.square(tf.cast(self.beta,self.use_dtype)))
 
 
@@ -159,7 +159,7 @@ class betaVAEModel(keras.Model):
             KL_loss_VM = tf.constant(0.)
         
 
-        loss = recon_loss/(tf.square(tf.cast(self.beta,self.use_dtype))) + tf.cast(KL_loss,self.use_dtype) + tf.cast(self.alpha,self.use_dtype)*tf.cast(KL_loss_VM,self.use_dtype)
+        loss = recon_loss/(2.*tf.square(tf.cast(self.beta,self.use_dtype))) + tf.cast(KL_loss,self.use_dtype) + tf.cast(self.alpha,self.use_dtype)*tf.cast(KL_loss_VM,self.use_dtype)
         # loss = recon_loss + tf.cast(KL_loss,self.use_dtype) *(tf.square(tf.cast(self.beta,self.use_dtype)))+ tf.cast(self.alpha,self.use_dtype)*tf.cast(KL_loss_VM,self.use_dtype)*(tf.square(tf.cast(self.beta,self.use_dtype)))
 
         self.loss_tracker.reset_states()
@@ -200,7 +200,9 @@ def build_and_compile_annealing_vae(encoder_conv_layers = [256,256,256,256],
                                     num_particles_in = 100,
                                     check_err_period = 10,
                                     num_inputs = 4,
-                                    use_dtype=tf.float32):
+                                    use_dtype=tf.float32,
+                                    renorm_clip = None,
+                                    ):
 
    
     
@@ -225,41 +227,71 @@ def build_and_compile_annealing_vae(encoder_conv_layers = [256,256,256,256],
         if dropout > 0:
             layer = keras.layers.Dropout(dropout)(layer)
 
-    if latent_dim > 0:
-     
-        z_mean = Dense(latent_dim, name='z_mean',bias_initializer='glorot_uniform')(layer)
-        z_log_var = Dense(latent_dim, name='z_log_var',bias_initializer='glorot_uniform')(layer)
+    layer = tf.keras.layers.BatchNormalization(
+        axis=-1, momentum=0.99, epsilon=0.001, center=True, scale=True,
+        beta_initializer='zeros', gamma_initializer='ones',
+        moving_mean_initializer='zeros',
+        moving_variance_initializer='ones', beta_regularizer=None,
+        gamma_regularizer=None, beta_constraint=None, gamma_constraint=None,
+        renorm=True, renorm_clipping=renorm_clip, renorm_momentum=0.99, fused=None,
+        trainable=True, virtual_batch_size=None, adjustment=None, name=None
+    )(layer)
 
-        gauss_layer = tf.stack([z_mean,z_log_var])
-        z = tfpl.DistributionLambda(make_distribution_fn = lambda t: tfd.MultivariateNormalDiag(t[0],tf.exp(t[1]/2)),
-                                        name="encoder_gauss_distribution"#,dtype=precision
-                                    )(gauss_layer)
-        
-        kl_loss_gauss = -0.5 * (1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var))
+    z_mean = Dense(latent_dim, name='z_mean',bias_initializer='glorot_uniform')(layer)
+    z_log_var = Dense(latent_dim, name='z_log_var',bias_initializer='glorot_uniform')(layer)
+
+    gauss_layer = tf.stack([z_mean,z_log_var])
+    z = tfpl.DistributionLambda(make_distribution_fn = lambda t: tfd.MultivariateNormalDiag(t[0],tf.exp(t[1]/2)),
+                                    name="encoder_gauss_distribution"#,dtype=precision
+                                )(gauss_layer)
+
+    kl_loss_gauss = -0.5 * (1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var))
 
 
-    if latent_dim_vm > 0:
-        vm_z_mean_x = tfkl.Dense(latent_dim_vm, name='encoder_vm_z_mean_x',activation=None,dtype=tf.float64)(layer)
-        vm_z_mean_y = tfkl.Dense(latent_dim_vm, name='encoder_vm_z_mean_y',activation=None,dtype=tf.float64)(layer)
-        vm_z_mean = tf.atan2(vm_z_mean_x,vm_z_mean_y, name = 'encoder_vm_z_mean')
-        vm_z_log_var = tfkl.Dense(latent_dim_vm, name='encoder_vm_z_log_var',activation='elu',dtype=tf.float64)(layer)
 
-        concentration = 2*(tf.math.cosh(vm_z_log_var+1)-1+1e-6)
-        layer = tf.stack([vm_z_mean,concentration])
+    vm_z_mean_x = tfkl.Dense(latent_dim_vm, name='encoder_vm_z_mean_x',activation=None)(layer)
+    vm_z_mean_x = tf.keras.layers.BatchNormalization(
+        axis=-1, momentum=0.99, epsilon=0.001, center=True, scale=True,
+        beta_initializer='zeros', gamma_initializer='ones',
+        moving_mean_initializer='zeros',
+        moving_variance_initializer='ones', beta_regularizer=None,
+        gamma_regularizer=None, beta_constraint=None, gamma_constraint=None,
+        renorm=True, renorm_clipping=renorm_clip, renorm_momentum=0.99, fused=None,
+        trainable=True, virtual_batch_size=None, adjustment=None, name=None
+    )(vm_z_mean_x)
+    vm_z_mean_y = tfkl.Dense(latent_dim_vm, name='encoder_vm_z_mean_y',activation=None)(layer)
+    vm_z_mean_y = tf.keras.layers.BatchNormalization(
+        axis=-1, momentum=0.99, epsilon=0.001, center=True, scale=True,
+        beta_initializer='zeros', gamma_initializer='ones',
+        moving_mean_initializer='zeros',
+        moving_variance_initializer='ones', beta_regularizer=None,
+        gamma_regularizer=None, beta_constraint=None, gamma_constraint=None,
+        renorm=True, renorm_clipping=renorm_clip, renorm_momentum=0.99, fused=None,
+        trainable=True, virtual_batch_size=None, adjustment=None, name=None
+    )(vm_z_mean_y)
+    vm_z_mean = tf.cast(tf.atan2(vm_z_mean_x,vm_z_mean_y, name = 'encoder_vm_z_mean'),tf.float64)
+#     vm_z_log_var = tfkl.Dense(latent_dim_vm, name='encoder_vm_z_log_var',activation='elu',dtype=tf.float64)(layer)
 
-        vonmis = tfpl.DistributionLambda(make_distribution_fn = lambda t: myVonMises(t[0],t[1]),
-                                        name="encoder_vm_distribution",dtype=tf.float64
-                                        )(layer)
+#     concentration = 2*(tf.math.cosh(vm_z_log_var+1)-1+1e-6)
 
-        if use_dtype is tf.float32:
-            concentration64 = tf.cast(concentration,tf.float64)
-        else:
-            concentration64 = concentration
-        i0e_concentration = tf.math.bessel_i0e(concentration64,name='i0e')
-        i1e_concentration = tf.math.bessel_i1e(concentration64)
-        conclimit = tf.cast(1.e-3,tf.float64)
-        concterm = tf.where(concentration64 > conclimit,tf.cast(0.,tf.float64),10*tf.math.square(concentration64-conclimit))
-        kl_loss_vm = tf.math.log(1 / i0e_concentration) + concentration64 * (i1e_concentration / i0e_concentration - 1) + concterm
+    vm_z_log_var = tfkl.Dense(latent_dim_vm, name='encoder_vm_z_log_var',dtype=tf.float64)(layer)
+
+    concentration = tf.exp(vm_z_log_var)
+    layer = tf.stack([vm_z_mean,concentration])
+
+    vonmis = tfpl.DistributionLambda(make_distribution_fn = lambda t: myVonMises(t[0],t[1]),
+                                    name="encoder_vm_distribution",dtype=tf.float32
+                                    )(layer)
+
+    if use_dtype is tf.float32:
+        concentration64 = tf.cast(concentration,tf.float64)
+    else:
+        concentration64 = concentration
+    i0e_concentration = tf.math.bessel_i0e(concentration64,name='i0e')
+    i1e_concentration = tf.math.bessel_i1e(concentration64)
+    conclimit = tf.cast(1/10.,tf.float64)
+    concterm = tf.where(concentration64 > conclimit,tf.cast(0.,tf.float64),-tf.math.log(concentration64*conclimit)/2e+3)
+    kl_loss_vm = tf.math.log(1 / i0e_concentration) + concentration64 * (i1e_concentration / i0e_concentration - 1) + concterm
         # #In large conc limit, I0e(conc) ~= 1/sqrt(2*pi*conc) , concentration64 * (i1e_concentration / i0e_concentration - 1) -> -0.5
         # kl_loss_vm_approx = 0.5*tf.math.log(concentration64) + tf.cast(0.5*tf.math.log(2*np.pi),tf.float64) - 0.5
         # use_approx = tf.greater(concentration64,1.e6)
@@ -267,25 +299,17 @@ def build_and_compile_annealing_vae(encoder_conv_layers = [256,256,256,256],
         # if use_dtype is tf.float32:
         #     kl_loss_vm = tf.cast(kl_loss_vm,tf.float32)
 
-    if latent_dim_vm > 0 and latent_dim > 0:
+
         # centers = tfkl.Concatenate()([z_mean, tf.cast(vm_z_mean,tf.float32)])
         # log_vars = tfkl.Concatenate()([z_log_var, -tf.math.log(concentration)])
         # losses = [kl_loss_gauss, tf.cast(kl_loss_vm,tf.float32)]
         # samples = tfkl.Concatenate()([z,tf.cast(vonmis,tf.float32)])
-        centers = tf.concat([z_mean, tf.cast(vm_z_mean,tf.float32)],1)
-        log_vars = tf.concat([z_log_var, -tf.math.log(tf.cast(concentration,tf.float32))],1)
-        losses = tf.concat([kl_loss_gauss, tf.cast(kl_loss_vm,tf.float32)],1)
-        samples = tf.concat([z,tf.cast(vonmis,tf.float32)],1)
-    elif latent_dim_vm > 0:
-        centers = vm_z_mean
-        log_vars = -tf.math.log(concentration)
-        losses = kl_loss_vm
-        samples = vonmis
-    else:
-        centers = z_mean
-        log_vars = z_log_var
-        losses = kl_loss_gauss
-        samples = z
+    centers = tfkl.Concatenate()([z_mean, tf.cast(vm_z_mean,tf.float32)])
+    log_vars = tfkl.Concatenate()([z_log_var, -tf.math.log(tf.cast(concentration,tf.float32))])
+    losses = tfkl.Concatenate()([kl_loss_gauss, tf.cast(kl_loss_vm,tf.float32)])
+    samples = tfkl.Concatenate()([z,vonmis])
+    vonmis_cast = tf.cast(vonmis,tf.float32)
+#     samples = vonmis
 
     encoder = Model(inputs, [centers,log_vars,losses,samples], name='encoder')
 
@@ -295,18 +319,17 @@ def build_and_compile_annealing_vae(encoder_conv_layers = [256,256,256,256],
 
     # Decoder
     latent_inputs = tfk.Input(shape=(latent_dim + latent_dim_vm,), name='z_sampling')
+#     latent_inputs = tfk.Input(shape=(latent_dim_vm), name='z_sampling')
 
     layer = latent_inputs
-    # line_dims = latent_inputs[:,:latent_dim]
-    # circle_dims = latent_inputs[:,latent_dim:]
+    line_dims = latent_inputs[:,:latent_dim]
+    circle_dims = latent_inputs[:,latent_dim:]
 
-    # circle_x = tf.sin(circle_dims)
-    # circle_y = tf.cos(circle_dims)
+    circle_x = tf.sin(circle_dims)
+    circle_y = tf.cos(circle_dims)
 
-    # if latent_dim_vm > 0:
-    #     layer = tfkl.Concatenate()([line_dims,circle_x,circle_y])
-    # else:
-    #     layer = line_dims
+    layer = tfkl.Concatenate()([line_dims,circle_x,circle_y])
+
     
     for i, layer_size in enumerate(decoder):
         layer = Dense(layer_size,bias_initializer='glorot_uniform')(layer)
