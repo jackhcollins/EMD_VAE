@@ -1,6 +1,6 @@
 import tensorflow as tf
 import tensorflow.keras as keras
-from tensorflow.python.keras.engine.training import enable_multi_worker
+# from tensorflow.python.keras.engine.training import enable_multi_worker
 from tensorflow.keras.layers import Input, Dense, Activation, BatchNormalization
 from tensorflow.keras.layers import Conv1D
 from tensorflow.keras.layers import Flatten, Reshape, Lambda
@@ -148,12 +148,12 @@ class betaVAEModel(keras.Model):
         # Compute our own loss
         recon_loss = self.recon_loss(y, y_pred)
         if self.latent_dims_line > 0:
-            KL_loss = tf.reduce_mean(tf.reduce_sum(losses,axis=-1))
+            KL_loss = tf.reduce_mean(tf.reduce_sum(losses[:,:self.latent_dims_line],axis=-1))
             # KL_loss = tf.reduce_mean(tf.reduce_sum(losses[:,:self.latent_dims_line],axis=-1))
         else:
             KL_loss = tf.constant(0.)
         if self.latent_dims_circle > 0:
-            KL_loss_VM = tf.reduce_mean(tf.reduce_sum(losses,axis=-1))
+            KL_loss_VM = tf.reduce_mean(tf.reduce_sum(losses[:,self.latent_dims_line:],axis=-1))
             # KL_loss_VM = tf.reduce_mean(tf.reduce_sum(losses[:,self.latent_dims_line:],axis=-1))
         else:
             KL_loss_VM = tf.constant(0.)
@@ -279,7 +279,7 @@ def build_and_compile_annealing_vae(encoder_conv_layers = [256,256,256,256],
     concentration = tf.exp(vm_z_log_var)
     layer = tf.stack([vm_z_mean,concentration])
 
-    vonmis = tfpl.DistributionLambda(make_distribution_fn = lambda t: myVonMises(t[0],t[1]),
+    vonmis = tfpl.DistributionLambda(make_distribution_fn = lambda t: tfd.VonMises(t[0],t[1]),
                                     name="encoder_vm_distribution",dtype=tf.float32
                                     )(layer)
 
@@ -313,7 +313,7 @@ def build_and_compile_annealing_vae(encoder_conv_layers = [256,256,256,256],
 
     encoder = Model(inputs, [centers,log_vars,losses,samples], name='encoder')
 
-    if verbose:
+    if verbose > 1:
         encoder.summary()
     #plot_model(encoder, to_file='CNN-VAE_encoder.png', show_shapes=True)
 
@@ -348,7 +348,7 @@ def build_and_compile_annealing_vae(encoder_conv_layers = [256,256,256,256],
     decoded = tf.keras.layers.Concatenate()([layer_pT,layer_eta,layer_phi])
 
     decoder = Model(latent_inputs, decoded, name='decoder')
-    if verbose:
+    if verbose > 1:
         decoder.summary()
     #plot_model(decoder, to_file='CNN-VAE_decoder.png', show_shapes=True)
 
@@ -366,7 +366,7 @@ def build_and_compile_annealing_vae(encoder_conv_layers = [256,256,256,256],
                                                                             dtype=tf.float64,
                                                                             sparse = False)   
 
-  
+    # @tf.function
     def return_return_loss(pt_outs, x_outs, pt_in, x_in):
 
         @tf.custom_gradient
@@ -428,8 +428,8 @@ def build_and_compile_annealing_vae(encoder_conv_layers = [256,256,256,256],
                         use_dtype=use_dtype#,
                         #metrics = [KL_loss_VM_func]
                )
-    
-    vae.summary()
+    if verbose:
+        vae.summary()
     
     return vae, encoder, decoder
 
