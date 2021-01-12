@@ -352,7 +352,7 @@ def build_and_compile_annealing_vae(encoder_conv_layers = [256,256,256,256],
     kl_loss_vm = tf.math.log(1 / i0e_concentration) + concentration64 * (i1e_concentration / i0e_concentration - 1) + concterm
         # #In large conc limit, I0e(conc) ~= 1/sqrt(2*pi*conc) , concentration64 * (i1e_concentration / i0e_concentration - 1) -> -0.5
     kl_loss_vm_approx = 0.5*tf.math.log(concentration64) + tf.cast(0.5*tf.math.log(2*np.pi),tf.float64) - 0.5
-    use_approx = tf.greater(concentration64,1.e6)
+    use_approx = tf.greater(concentration64,1e6)
     kl_loss_vm = tf.where(use_approx,kl_loss_vm_approx,kl_loss_vm)
         # if use_dtype is tf.float32:
         #     kl_loss_vm = tf.cast(kl_loss_vm,tf.float32)
