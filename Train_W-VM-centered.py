@@ -157,11 +157,11 @@ data = center_jets_ptetaphiE(data)
 # Separated phi into cos and sin for continuity around full detector, so make things easier for NN.
 # Also adding the log E is mainly because it seems like it should make things easier for NN, since there is an exponential spread in particle energies.
 # Feel free to change these choices as desired. E.g. px, py might be equally as good as pt, sin, cos.
-sig_input = np.zeros((len(data),2,5))
+sig_input = np.zeros((len(data),2,4))
 sig_input[:,:,:2] = data[:,:,:2]
 sig_input[:,:,2] = np.cos(data[:,:,2])
 sig_input[:,:,3] = np.sin(data[:,:,2])
-sig_input[:,:,4] = np.log(data[:,:,3]+1e-8)
+#sig_input[:,:,4] = np.log(data[:,:,3]+1e-8)
 
 
 data_x = sig_input
@@ -192,10 +192,10 @@ def make_vae(renorm_clip=None,verbose = 1):
                                       reg_init = 1.,
                                       reg_final = 0.01,
                                       stopThr=1e-3,
-                                      num_inputs=5,           # Size of x (e.g. pT, eta, sin, cos, log E)
+                                      num_inputs=4,           # Size of x (e.g. pT, eta, sin, cos, log E)
                                       num_particles_in=2,
-                                      latent_dim = 10,
-                                      latent_dim_vm = 10,
+                                      latent_dim = 1,
+                                      latent_dim_vm = 1,
                                       verbose=verbose,
                                       dropout = 0.1,
                                       renorm_clip = renorm_clip)    # Num particles per event.
@@ -218,7 +218,7 @@ callbacks=[reduceLR,
 
 print("Starting 1")
 # Need to train on at least one example before model params can be loaded for annoying reasons.
-beta = 1e-3
+beta = 1.
 vae.beta.assign(beta)
 
 K.set_value(vae.optimizer.lr,1e-4)
@@ -235,7 +235,7 @@ vae.save_weights(train_output_dir + '/model_weights_temp.hdf5')
 print("Starting 2")
 vae, encoder, decoder = make_vae(renorm_clip={'rmin':1./2,'rmax':2.,'dmax':2.},verbose=0)
 vae.load_weights(train_output_dir + '/model_weights_temp.hdf5')
-beta = 1e-3
+
 vae.beta.assign(beta)
 history = vae.fit(x=train_x, y=train_y, batch_size=batch_size,
                 epochs=1,verbose=2,#initial_epoch=int(vae.optimizer.iterations/numbatches),
@@ -246,7 +246,7 @@ history = vae.fit(x=train_x, y=train_y, batch_size=batch_size,
 vae.save_weights(train_output_dir + '/model_weights_temp.hdf5')
 
 vae, encoder, decoder = make_vae(renorm_clip={'rmin':1./5,'rmax':5.,'dmax':5.},verbose=0)
-beta = 1e-3
+vae.load_weights(train_output_dir + '/model_weights_temp.hdf5')
 vae.beta.assign(beta)
 history = vae.fit(x=train_x, y=train_y, batch_size=batch_size,
                 epochs=1,verbose=2,#initial_epoch=int(vae.optimizer.iterations/numbatches),
@@ -257,8 +257,9 @@ history = vae.fit(x=train_x, y=train_y, batch_size=batch_size,
 vae.save_weights(train_output_dir + '/model_weights_temp.hdf5')
 
 
-betas = np.concatenate((np.logspace(-4.,-1,16),
-                        np.flip(np.logspace(-4,-1,16))[1:]))
+betas = np.concatenate((np.flip(np.logspace(-3.,-1,11)),
+                        np.logspace(-3.,-1,11)[1:],
+                        np.flip(np.logspace(-3,-1,11))[1:]))
 print(betas)
 
 # init_epoch = 544
@@ -294,9 +295,9 @@ for beta in betas:
     vae.save_weights(train_output_dir + '/model_weights_end_' + str(init_epoch) + '_' + "{:.1e}".format(beta) + '.hdf5')
 
 
-betas = np.concatenate((np.logspace(-4.,-1,31)[1:],
-                        np.flip(np.logspace(-4,-1,31))[1:],
-                        np.logspace(-4.,-1,31)[1:]))
+betas = np.concatenate((np.logspace(-3.,-1,21)[1:],
+                        np.flip(np.logspace(-3,-1,21))[1:],
+                        np.logspace(-3.,-1,21)[1:]))
 
 
 for beta in betas:

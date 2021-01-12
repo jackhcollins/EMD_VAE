@@ -1,4 +1,5 @@
 import tensorflow as tf
+#tf.config.experimental_run_functions_eagerly(True)
 import tensorflow.keras as keras
 # from tensorflow.python.keras.engine.training import enable_multi_worker
 from tensorflow.keras.layers import Input, Dense, Activation, BatchNormalization
@@ -50,8 +51,8 @@ class myVonMises(tfd.VonMises):
         # vonMises(0, concentration) -> vonMises(loc, concentration)
         samples = samples + loc
         # Map the samples to [-pi, pi].
-        samples = samples - 2. * np.pi * tf.round(samples / (2. * np.pi))
-        return tf.cast(samples,tf.float32)  
+        #samples = samples - 2. * np.pi * tf.round(samples / (2. * np.pi))
+        return tf.cast(samples,tf.float32)
 
 loss_tracker = keras.metrics.Mean(name="loss")
 recon_loss_tracker = keras.metrics.Mean(name="recon_loss")
@@ -59,6 +60,60 @@ KL_loss_tracker = keras.metrics.Mean(name="KL_loss")
 val_loss_tracker = keras.metrics.Mean(name="val_loss")
 val_recon_loss_tracker = keras.metrics.Mean(name="val_recon_loss")
 val_KL_loss_tracker = keras.metrics.Mean(name="val_KL_loss")
+
+class myDecoderModel(keras.Model):
+
+    def __init__(self,num_particles_out=50,decoder_sizes=[100,100],dropout = 0,input_shape=2):
+        super(myDecoderModel,self).__init__()
+        self.num_particles_out = num_particles_out
+        self.dense_layers = []
+        
+        for i, layer_size in enumerate(decoder_sizes):
+            if i is 0:
+                layer = Dense(layer_size,input_shape=(input_shape,), name = 'decoder_' + str(i))
+            else:
+                layer = Dense(layer_size, name = 'decoder_' + str(i))
+            self.dense_layers += [layer]
+            layer = keras.layers.ReLU()
+            self.dense_layers += [layer]
+            if dropout > 0:
+                layer = keras.layers.Dropout(dropout)
+                self.dense_layers += [layer]
+        
+        self.finallayer0 = Dense(self.num_particles_out*4)
+        #self.finallayer1 = Reshape((self.num_particles_out,4))(layer)
+        #layer_pT = layer[:,:,0:1]
+        #layer_pT = tf.keras.layers.Softmax(axis=-2)(layer_pT)
+        #layer_eta = layer[:,:,1:2]
+        #layer_phi = tf.math.atan2(layer[:,:,3],layer[:,:,2])
+        #layer_phi = tf.expand_dims(layer_phi,axis=-1)
+        #decoded = tf.keras.layers.Concatenate()([layer_pT,layer_eta,layer_phi])
+
+    @tf.function
+    def call(self,inputs,training=False):
+        line_dims = inputs[0]
+        circle_dims = inputs[1]
+        switch_z = tf.greater(tf.math.abs(circle_dims),np.pi)
+        line_dims_2 = tf.where(switch_z,-line_dims,line_dims)
+
+
+        circle_x = tf.sin(circle_dims)
+        circle_y = tf.cos(circle_dims)
+
+        layer = tfkl.Concatenate()([line_dims_2,circle_x,circle_y])
+        
+        for dlayer in self.dense_layers:
+            layer = dlayer(layer)
+
+        layer = self.finallayer0(layer)
+        layer = Reshape((self.num_particles_out,4))(layer)
+        layer_pT = layer[:,:,0:1]
+        layer_pT = tf.keras.layers.Softmax(axis=-2)(layer_pT)
+        layer_eta = layer[:,:,1:2]
+        layer_phi = tf.math.atan2(layer[:,:,3],layer[:,:,2])
+        layer_phi = tf.expand_dims(layer_phi,axis=-1)
+        decoded = tf.keras.layers.Concatenate()([layer_pT,layer_eta,layer_phi])
+        return decoded
 
 class betaVAEModel(keras.Model):
 
@@ -184,7 +239,7 @@ class betaVAEModel(keras.Model):
 
 def build_and_compile_annealing_vae(encoder_conv_layers = [256,256,256,256],
                                     dense_size = [256,256,256,256],
-                                    decoder = [512,256,256,256],
+                                    decoder_sizes = [512,256,256,256],
                                     verbose=0,dropout=0,
                                     latent_dim = 128,
                                     latent_dim_vm = 128,
@@ -211,9 +266,11 @@ def build_and_compile_annealing_vae(encoder_conv_layers = [256,256,256,256],
 
     layer = inputs
 
-    for layer_size in encoder_conv_layers:
-        #layer = Conv1D(layer_size,1,bias_initializer='glorot_uniform')(layer)
-        layer = Conv1D(layer_size,1)(layer)
+    for i, layer_size in enumerate(encoder_conv_layers):
+        if i is 0:
+            layer = Conv1D(layer_size,1,input_shape=(num_particles_in,num_inputs))(layer)
+        else:
+            layer = Conv1D(layer_size,1)(layer)
         layer = keras.layers.ReLU()(layer)
         if dropout > 0:
             layer = keras.layers.Dropout(dropout,noise_shape=(None,1,layer_size))(layer)
@@ -223,7 +280,6 @@ def build_and_compile_annealing_vae(encoder_conv_layers = [256,256,256,256],
 
     # Dense layers
     for size in dense_size:
-        #layer = Dense(size,bias_initializer='glorot_uniform')(layer)
         layer = Dense(size)(layer)
         layer = keras.layers.ReLU()(layer)
         if dropout > 0:
@@ -282,7 +338,7 @@ def build_and_compile_annealing_vae(encoder_conv_layers = [256,256,256,256],
     layer = tf.stack([vm_z_mean,concentration])
 
     vonmis = tfpl.DistributionLambda(make_distribution_fn = lambda t: myVonMises(t[0],t[1]),
-                                    name="encoder_vm_distribution",dtype=tf.float64
+                                    name="encoder_vm_distribution",dtype=tf.float32
                                     )(layer)
 
     if use_dtype is tf.float32:
@@ -309,54 +365,60 @@ def build_and_compile_annealing_vae(encoder_conv_layers = [256,256,256,256],
     centers = tfkl.Concatenate()([z_mean, tf.cast(vm_z_mean,tf.float32)])
     log_vars = tfkl.Concatenate()([z_log_var, -tf.math.log(tf.cast(concentration,tf.float32))])
     losses = tfkl.Concatenate()([kl_loss_gauss, tf.cast(kl_loss_vm,tf.float32)])
-    samples = tfkl.Concatenate()([z,vonmis])
-    vonmis_cast = tf.cast(vonmis,tf.float32)
+#    samples = tfkl.Concatenate()([z,vonmis])
+#    vonmis_cast = tf.cast(vonmis,tf.float32)
 #     samples = vonmis
+#    samples = [z,vonmis]
 
-    encoder = Model(inputs, [centers,log_vars,losses,samples], name='encoder')
+    encoder = Model(inputs, [centers,log_vars,losses,z,vonmis], name='encoder')
 
     if verbose > 1:
         encoder.summary()
     #plot_model(encoder, to_file='CNN-VAE_encoder.png', show_shapes=True)
 
     # Decoder
-    latent_inputs = tfk.Input(shape=(latent_dim + latent_dim_vm,), name='z_sampling')
+#    latent_inputs = tfk.Input(shape=(latent_dim + latent_dim_vm,), name='z_sampling')
 #     latent_inputs = tfk.Input(shape=(latent_dim_vm), name='z_sampling')
 
-    layer = latent_inputs
-    line_dims = latent_inputs[:,:latent_dim]
-    circle_dims = latent_inputs[:,latent_dim:]
-
-    circle_x = tf.sin(circle_dims)
-    circle_y = tf.cos(circle_dims)
-
-    layer = tfkl.Concatenate()([line_dims,circle_x,circle_y])
+#    layer = latent_inputs
+    #line_dims = tf.keras.Input(shape=(latent_dim,), name='z_sampling_lin')
+    #circle_dims = tf.keras.Input(shape=(latent_dim_vm,), name='z_sampling_circ')
+    #switch_z = tf.greater(tf.math.abs(circle_dims),np.pi)
+    #line_dims_2 = tf.where(switch_z,-line_dims,line_dims)
 
     
-    for i, layer_size in enumerate(decoder):
-        layer = Dense(layer_size)(layer)
-        layer = keras.layers.ReLU()(layer)
-        if dropout > 0:
-            layer = keras.layers.Dropout(dropout)(layer)
+    #circle_x = tf.sin(circle_dims)
+    #circle_y = tf.cos(circle_dims)
+
+    #layer = tfkl.Concatenate()([line_dims_2,circle_x,circle_y])
+    #layer = line_dims
+    
+    #for i, layer_size in enumerate(decoder):
+    #    layer = Dense(layer_size)(layer)
+    #    layer = keras.layers.ReLU()(layer)
+    #    if dropout > 0:
+    #        layer = keras.layers.Dropout(dropout)(layer)
 
 
-    layer = Dense(num_particles_out*4)(layer)
-    layer = Reshape((num_particles_out,4))(layer)
-    layer_pT = layer[:,:,0:1]
-    layer_pT = tf.keras.layers.Softmax(axis=-2)(layer_pT)
-    layer_eta = layer[:,:,1:2]
-    layer_phi = tf.math.atan2(layer[:,:,3],layer[:,:,2])
-    layer_phi = tf.expand_dims(layer_phi,axis=-1)
-    decoded = tf.keras.layers.Concatenate()([layer_pT,layer_eta,layer_phi])
+    #layer = Dense(num_particles_out*4)(layer)
+    #layer = Reshape((num_particles_out,4))(layer)
+    #layer_pT = layer[:,:,0:1]
+    #layer_pT = tf.keras.layers.Softmax(axis=-2)(layer_pT)
+    #layer_eta = layer[:,:,1:2]
+    #layer_phi = tf.math.atan2(layer[:,:,3],layer[:,:,2])
+    #layer_phi = tf.expand_dims(layer_phi,axis=-1)
+    #decoded = tf.keras.layers.Concatenate()([layer_pT,layer_eta,layer_phi])
 
-    decoder = Model(latent_inputs, decoded, name='decoder')
+    #decoder = Model([line_dims,circle_dims], decoded, name='decoder')
+    decoder = myDecoderModel(num_particles_out = num_particles_out,decoder_sizes = decoder_sizes,dropout=dropout,
+                             input_shape = latent_dim + latent_dim_vm)
     if verbose > 1:
         decoder.summary()
     #plot_model(decoder, to_file='CNN-VAE_decoder.png', show_shapes=True)
 
-
-    outputs = decoder(encoder(inputs)[3])
-    vae = betaVAEModel(inputs, [outputs, centers,log_vars,losses,samples], name='VAE')
+    _,_,_,in1,in2=encoder(inputs)
+    outputs = decoder([in1,in2])
+    vae = betaVAEModel(inputs, [outputs, centers,log_vars,losses,[z,vonmis]], name='VAE')
 
 
     sinkhorn_knopp_tf_inst = sinkhorn_knopp_tf_scaling_stabilized_class(reg_init,
@@ -424,10 +486,10 @@ def build_and_compile_annealing_vae(encoder_conv_layers = [256,256,256,256],
   
     vae.betaVAE_compile(recon_loss=recon_loss,
                         optimizer=optimizer,
-                        experimental_run_tf_function=False,
+                        #experimental_run_tf_function=False,
                         latent_dims_line=latent_dim,
                         latent_dims_circle=latent_dim_vm,
-                        use_dtype=use_dtype#,
+                        use_dtype=use_dtype,
                         #metrics = [KL_loss_VM_func]
                )
     if verbose:
