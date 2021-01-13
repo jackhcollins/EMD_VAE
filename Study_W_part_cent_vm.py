@@ -412,7 +412,7 @@ for i in range(len(split_betas)):
 plt.semilogy()
 plt.semilogx()
 #plt.xlim(1e-2,1.)
-#plt.ylim(1,None)
+plt.ylim(0.1,None)
 plt.xlabel(r'$\beta$')
 plt.ylabel(r'KL Loss')
 plt.savefig(file_prefix +'KL.png')
