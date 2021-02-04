@@ -7,7 +7,7 @@ from tensorflow.keras.layers import Flatten, Reshape, Lambda
 from tensorflow.keras.utils import plot_model
 from tensorflow.keras import Model
 from utils.tf_sinkhorn import ground_distance_tf_nograd, sinkhorn_knopp_tf_scaling_stabilized_class
-from tensorflow.python.keras.utils import tf_utils
+
 
 
 import tensorflow_probability as tfp
@@ -50,7 +50,7 @@ class myVonMises(tfd.VonMises):
         # vonMises(0, concentration) -> vonMises(loc, concentration)
         samples = samples + loc
         # Map the samples to [-pi, pi].
-        samples = samples - 2. * np.pi * tf.round(samples / (2. * np.pi))
+        #samples = samples - 2. * np.pi * tf.round(samples / (2. * np.pi))
         return tf.cast(samples,tf.float32)  
 
 loss_tracker = keras.metrics.Mean(name="loss")
@@ -171,7 +171,7 @@ class betaVAEModel(keras.Model):
         self.recon_loss_tracker.update_state(recon_loss)
         self.KL_loss_tracker.update_state(KL_loss)
         self.KL_VM_loss_tracker.update_state(KL_loss_VM)
-
+        
 
         return {"loss": self.loss_tracker.result(),
                 "recon_loss": self.recon_loss_tracker.result(),
@@ -184,12 +184,11 @@ class betaVAEModel(keras.Model):
 
 def build_and_compile_annealing_vae(encoder_conv_layers = [256,256,256,256],
                                     dense_size = [256,256,256,256],
-#                                    decoder = [512,256,256,256],
                                     decoder_sizes = [512,256,256,256],
                                     verbose=0,dropout=0,
                                     latent_dim = 128,
                                     latent_dim_vm = 128,
-                                    optimizer=keras.optimizers.Adam(clipnorm=0.01,lr=0.0001),
+                                    optimizer=keras.optimizers.Adam(),
                                     num_particles_out = 50,
                                     reg_init = 1.,
                                     reg_final = 0.01,
@@ -254,22 +253,22 @@ def build_and_compile_annealing_vae(encoder_conv_layers = [256,256,256,256],
 
     vm_z_mean_x = tfkl.Dense(latent_dim_vm, name='encoder_vm_z_mean_x',activation=None)(layer)
     vm_z_mean_x = tf.keras.layers.BatchNormalization(
-        axis=-1, momentum=0.999, epsilon=0.0001, center=True, scale=True,
+        axis=-1, momentum=0.99, epsilon=0.001, center=True, scale=True,
         beta_initializer='zeros', gamma_initializer='ones',
         moving_mean_initializer='zeros',
         moving_variance_initializer='ones', beta_regularizer=None,
         gamma_regularizer=None, beta_constraint=None, gamma_constraint=None,
-        renorm=True, renorm_clipping=renorm_clip, renorm_momentum=0.999, fused=None,
+        renorm=True, renorm_clipping=renorm_clip, renorm_momentum=0.99, fused=None,
         trainable=True, virtual_batch_size=None, adjustment=None, name=None
     )(vm_z_mean_x)
     vm_z_mean_y = tfkl.Dense(latent_dim_vm, name='encoder_vm_z_mean_y',activation=None)(layer)
     vm_z_mean_y = tf.keras.layers.BatchNormalization(
-        axis=-1, momentum=0.999, epsilon=0.0001, center=True, scale=True,
+        axis=-1, momentum=0.99, epsilon=0.001, center=True, scale=True,
         beta_initializer='zeros', gamma_initializer='ones',
         moving_mean_initializer='zeros',
         moving_variance_initializer='ones', beta_regularizer=None,
         gamma_regularizer=None, beta_constraint=None, gamma_constraint=None,
-        renorm=True, renorm_clipping=renorm_clip, renorm_momentum=0.999, fused=None,
+        renorm=True, renorm_clipping=renorm_clip, renorm_momentum=0.99, fused=None,
         trainable=True, virtual_batch_size=None, adjustment=None, name=None
     )(vm_z_mean_y)
     vm_z_mean = tf.cast(tf.atan2(vm_z_mean_x,vm_z_mean_y, name = 'encoder_vm_z_mean'),tf.float64)
@@ -328,10 +327,13 @@ def build_and_compile_annealing_vae(encoder_conv_layers = [256,256,256,256],
     line_dims = latent_inputs[:,:latent_dim]
     circle_dims = latent_inputs[:,latent_dim:]
 
-    circle_x = tf.sin(circle_dims)
-    circle_y = tf.cos(circle_dims)
+    v = tf.math.tanh(line_dims)
 
-    layer = tfkl.Concatenate()([line_dims,circle_x,circle_y])
+    x = (1 + (v/2)*tf.cos(circle_dims/2))*tf.cos(circle_dims)
+    y = (1 + (v/2)*tf.cos(circle_dims/2))*tf.sin(circle_dims)
+    z = (v/2) * tf.sin(circle_dims/2)
+
+    layer = tfkl.Concatenate()([x,y,z])
 
     
     for i, layer_size in enumerate(decoder_sizes):
@@ -444,21 +446,3 @@ class reset_metrics(keras.callbacks.Callback):
         val_loss_tracker.reset_states()
         val_recon_loss_tracker.reset_states()
         val_KL_loss_tracker.reset_states()
-
-
-class myTerminateOnNaN(keras.callbacks.Callback):
-  """Callback that terminates training when a NaN loss is encountered.
-  """
-
-  def __init__(self):
-    super(myTerminateOnNaN, self).__init__()
-    self._supports_tf_logs = True
-
-  def on_epoch_end(self, batch, logs=None):
-    logs = logs or {}
-    loss = logs.get('loss')
-    if loss is not None:
-      loss = tf_utils.to_numpy_or_python_type(loss)
-      if np.isnan(loss) or np.isinf(loss):
-        print('Batch %d: Invalid loss, terminating training' % (batch))
-        self.model.stop_training = True

@@ -106,7 +106,7 @@ class betaVAEModel(keras.Model):
 
 def build_and_compile_annealing_vae(encoder_conv_layers = [256,256,256,256],
                                     dense_size = [256,256,256,256],
-                                    decoder_sizes = [512,256,256,256],
+                                    decoder = [512,256,256,256],
                                     verbose=0,dropout=0,
                                     latent_dim = 128,
                                     optimizer=keras.optimizers.Adam(),
@@ -120,8 +120,7 @@ def build_and_compile_annealing_vae(encoder_conv_layers = [256,256,256,256],
                                     EPSILON = 1e-6,
                                     num_particles_in = 100,
                                     check_err_period = 10,
-                                    num_inputs = 4,
-                                    **kwargs):
+                                    num_inputs = 4):
 
   
 #     def sampling_gauss(args):
@@ -148,7 +147,7 @@ def build_and_compile_annealing_vae(encoder_conv_layers = [256,256,256,256],
     layer = inputs
 
     for layer_size in encoder_conv_layers:
-        layer = Conv1D(layer_size,1)(layer)
+        layer = Conv1D(layer_size,1,bias_initializer='glorot_uniform')(layer)
         layer = keras.layers.ReLU()(layer)
         if dropout > 0:
             layer = keras.layers.Dropout(dropout,noise_shape=(None,1,layer_size))(layer)
@@ -158,13 +157,13 @@ def build_and_compile_annealing_vae(encoder_conv_layers = [256,256,256,256],
 
     # Dense layers
     for size in dense_size:
-        layer = Dense(size)(layer)
+        layer = Dense(size,bias_initializer='glorot_uniform')(layer)
         layer = keras.layers.ReLU()(layer)
         if dropout > 0:
             layer = keras.layers.Dropout(dropout)(layer)
      
-    z_mean = Dense(latent_dim, name='z_mean')(layer)
-    z_log_var = Dense(latent_dim, name='z_log_var')(layer)
+    z_mean = Dense(latent_dim, name='z_mean',bias_initializer='glorot_uniform')(layer)
+    z_log_var = Dense(latent_dim, name='z_log_var',bias_initializer='glorot_uniform')(layer)
     
     
     layer = tf.stack([z_mean,z_log_var])
@@ -184,20 +183,21 @@ def build_and_compile_annealing_vae(encoder_conv_layers = [256,256,256,256],
     layer = latent_inputs_gauss
     #layer = latent_inputs
     
-    for i, layer_size in enumerate(decoder_sizes):
-        layer = Dense(layer_size)(layer)
+    for i, layer_size in enumerate(decoder):
+        layer = Dense(layer_size,bias_initializer='glorot_uniform')(layer)
         layer = keras.layers.ReLU()(layer)
         if dropout > 0:
             layer = keras.layers.Dropout(dropout)(layer)
 
 
-    layer = Dense(num_particles_out*4)(layer)
-    layer = Reshape((num_particles_out,4))(layer)
+    layer = Dense(num_particles_out*3)(layer)
+    layer = Reshape((num_particles_out,3))(layer)
     layer_pT = layer[:,:,0:1]
     layer_pT = tf.keras.layers.Softmax(axis=-2)(layer_pT)
     layer_eta = layer[:,:,1:2]
-    layer_phi = tf.math.atan2(layer[:,:,3],layer[:,:,2])
-    layer_phi = tf.expand_dims(layer_phi,axis=-1)
+    layer_eta = layer[:,:,2:3]
+    #layer_phi = tf.math.atan2(layer[:,:,3],layer[:,:,2])
+    #layer_phi = tf.expand_dims(layer_phi,axis=-1)
     decoded = tf.keras.layers.Concatenate()([layer_pT,layer_eta,layer_phi])
 
     decoder = Model(latent_inputs_gauss, decoded, name='decoder')
@@ -299,20 +299,3 @@ class reset_metrics(keras.callbacks.Callback):
 #         val_loss_tracker.reset_states()
 #         val_recon_loss_tracker.reset_states()
 #         val_KL_loss_tracker.reset_states()
-
-class myTerminateOnNaN(keras.callbacks.Callback):
-  """Callback that terminates training when a NaN loss is encountered.
-  """
-
-  def __init__(self):
-    super(myTerminateOnNaN, self).__init__()
-    self._supports_tf_logs = True
-
-  def on_epoch_end(self, batch, logs=None):
-    logs = logs or {}
-    loss = logs.get('loss')
-    if loss is not None:
-      loss = tf_utils.to_numpy_or_python_type(loss)
-      if np.isnan(loss) or np.isinf(loss):
-        print('Batch %d: Invalid loss, terminating training' % (batch))
-        self.model.stop_training = True
