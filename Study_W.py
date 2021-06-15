@@ -1,3 +1,26 @@
+import argparse
+
+parser = argparse.ArgumentParser(description='Plot jets')
+parser.add_argument('model_dir')
+parser.add_argument('--img_prefix')
+parser.add_argument('--utils')
+
+
+args = parser.parse_args()
+print(args)
+model_dir = args.model_dir
+vae_args_file = model_dir + "/vae_args.dat"
+
+
+if args.img_prefix:
+  file_prefix = args.img_prefix
+else:
+  file_prefix = model_dir + '/'
+print("Saving files with prefix", file_prefix)
+
+
+
+
 import tensorflow as tf
 tf.config.experimental.set_visible_devices([], 'GPU')
 gpus = tf.config.experimental.list_physical_devices('GPU')
@@ -31,8 +54,6 @@ from collections import OrderedDict
 
 
 from utils.tf_sinkhorn import ground_distance_tf_nograd, sinkhorn_knopp_tf_scaling_stabilized_class
-import utils.VAE_model_tools_vm
-from utils.VAE_model_tools_vm import build_and_compile_annealing_vae, betaVAEModel, reset_metrics
 
 import pandas
 
@@ -50,18 +71,16 @@ if __name__ == "__main__":
     for i, arg in enumerate(sys.argv):
         print(f"Argument {i:>6}: {arg}")
 
-if len(sys.argv) > 1:
-  model_dir = sys.argv[1]
-  vae_args_file = model_dir + "/vae_args.dat"
+if args.utils:
+  import importlib
+  VAE_model_tools = importlib.import_module(args.utils)
+  build_and_compile_annealing_vae = getattr(VAE_model_tools,'build_and_compile_annealing_vae')
+  betaVAEModel = getattr(VAE_model_tools,'betaVAEModel')
+  reset_metrics = getattr(VAE_model_tools,'reset_metrics')
 else:
-  print("No model directory given (first argument)")
-  quit()
+  import utils.VAE_model_tools
+  from utils.VAE_model_tools import build_and_compile_annealing_vae, betaVAEModel, reset_metrics
 
-if len(sys.argv) > 2:
-  file_prefix = sys.argv[2]
-else:
-  file_prefix = model_dir + '/'
-print("Saving files with prefix", file_prefix)
 
 def create_dir(dir_path):
     ''' Creates a directory (or nested directories) if they don't exist.
@@ -208,9 +227,9 @@ def plot_jets(outs_array, numplot = 3, R=0.02,size=50):
         
 def plot_KL_logvar(outs_array,xlim=None,ylim=None,showhist=False, numhists=10,hist_ylim=None,hist_xlim=None):
     
-    y_pred ,z_mean, z_log_var, losses, _ = outs_array[0]
+    y_pred ,z_mean, z_log_var, _ = outs_array[0]
 
-    KL=kl_loss(z_mean, z_log_var)
+    KL = kl_loss(z_mean, z_log_var)
     sort_kl = np.flip(np.argsort(np.mean(KL,axis=0)))
 
     rms_mean = np.sqrt(np.mean(np.square(z_mean),axis=0))
@@ -294,6 +313,7 @@ history = vae.fit(x=train_x[:10], y=train_y[:10], batch_size=batch_size,
                 callbacks = None
               )
 
+print("Preparing to load weights")
 
 def get_epoch(file):
     epoch = int(epoch_string.search(file).group()[1:-1])
@@ -305,7 +325,7 @@ def get_beta(file):
 
 epoch_string=re.compile('_\d*_')
 beta_string=re.compile('\d\.[\w\+-]*')
-files = glob.glob(train_output_dir + '/model_weights*.hdf5')
+files = glob.glob(train_output_dir + '/model_weights_end*.hdf5')
 print("Found files:", files)
 files.sort(key=os.path.getmtime)
 epochs = np.array([get_epoch(file) for file in files])
@@ -354,7 +374,14 @@ split_recons = split_data(recons)
 
 print(split_betas)
 
-n=4
+
+def beta_to_betap(beta):
+  return 500*beta
+def betap_to_beta(betap):
+  return betap/500
+
+import math
+n=int(math.ceil(len(split_betas)/2))
 colors = [cmap(1.*i/(n) ) for i in range(n)]
 # colors = ['C0','C1','C1','C2','C2']
 fig = plt.figure()
@@ -362,13 +389,15 @@ for i in range(len(split_betas)):
     style = '-'
     if i%2 == 1:
         style = '--'
-    plt.plot(split_betas[i], split_losses[i],linestyle=style,color = colors[int((i+1)/2)])
+    plt.plot(split_betas[i], split_losses[i],linestyle=style,color = colors[int(math.floor(i/2))])
 plt.semilogy()
 # plt.ylim([10,None])
 plt.semilogx()
 plt.xlabel(r'$\beta$')
 plt.ylabel(r'Loss')
 #plt.xlim(1e-2,1.)
+ax = fig.axes[0]
+sec_ax = ax.secondary_xaxis('top',functions=(beta_to_betap,betap_to_beta))
 plt.savefig(file_prefix +'loss.png')
 plt.show()
 
@@ -377,12 +406,14 @@ for i in range(len(split_betas)):
     style = '-'
     if i%2 == 1:
         style = '--'
-    plt.plot(split_betas[i], split_losses[i]*np.square(split_betas[i]),linestyle=style,color = colors[int((i+1)/2)])
+    plt.plot(split_betas[i], split_losses[i]*np.square(split_betas[i]),linestyle=style,color = colors[int(math.floor(i/2))])
 plt.semilogy()
 # plt.ylim([10,None])
 plt.semilogx()
 plt.xlabel(r'$\beta$')
 plt.ylabel(r'$\beta^2$ Loss')
+ax = fig.axes[0]
+sec_ax = ax.secondary_xaxis('top',functions=(beta_to_betap,betap_to_beta))
 #plt.xlim(1e-2,1.)
 #plt.ylim(1e-4,None)
 plt.savefig(file_prefix +'losstimebetasqr.png')
@@ -393,11 +424,13 @@ for i in range(len(split_betas)):
     style = '-'
     if i%2 == 1:
         style = '--'
-    plt.plot(split_betas[i], split_recons[i],linestyle=style,color = colors[int((i+1)/2)])
+    plt.plot(split_betas[i], split_recons[i],linestyle=style,color = colors[int(math.floor(i/2))])
 plt.semilogy()
 plt.semilogx()
 plt.xlabel(r'$\beta$')
 plt.ylabel(r'Recon Loss = EMD$^2$')
+ax = fig.axes[0]
+sec_ax = ax.secondary_xaxis('top',functions=(beta_to_betap,betap_to_beta))
 #plt.ylim(1e-4,None)
 #plt.xlim(1e-2,1.)
 plt.savefig(file_prefix +'reconloss.png')
@@ -408,30 +441,70 @@ for i in range(len(split_betas)):
     style = '-'
     if i%2 == 1:
         style = '--'
-    plt.plot(split_betas[i], split_KLs[i],linestyle=style,color = colors[int((i+1)/2)])
-plt.semilogy()
+    plt.plot(split_betas[i], split_KLs[i],linestyle=style,color = colors[int(math.floor(i/2))])
+#plt.semilogy()
 plt.semilogx()
 #plt.xlim(1e-2,1.)
-#plt.ylim(1,None)
+#plt.ylim(0.1,None)
+ax = fig.axes[0]
+sec_ax = ax.secondary_xaxis('top',functions=(beta_to_betap,betap_to_beta))
 plt.xlabel(r'$\beta$')
 plt.ylabel(r'KL Loss')
 plt.savefig(file_prefix +'KL.png')
 plt.show()
 
+#fig = plt.figure()
+#y_pred ,z_mean, z_log_var, losses, _ = outs_array[0]
+
+#KL=kl_loss(z_mean, z_log_var)
+#sort_kl = np.flip(np.argsort(np.mean(KL,axis=0)))
+
+#rms_mean = np.sqrt(np.mean(np.square(z_mean),axis=0))
+
+#plt.scatter(np.mean(KL,axis=0),rms_mean,s=5.)
+#plt.xlim([-0.1,None])
+#plt.ylim([-0.1,None])
+#plt.xlabel('KL divergence')
+#plt.ylabel(r'$\sqrt{\left\langle \mu^2 \right\rangle}$')
+#plt.savefig(file_prefix + 'KL_scatter.png')
+#plt.show()
+
+
+
+D1s = []
+D2s = []
+for j in range(len(split_betas)):
+  style = '-'
+  if i%2 == 1:
+    style = '--'
+  dKLs = np.array([split_KLs[j][i+1]-split_KLs[j][i] for i in range(len(split_KLs[j])-1)])
+  dlogbetas = np.array([np.log(split_betas[j][i+1])-np.log(split_betas[j][i]) for i in range(len(split_KLs[j])-1)])
+  D1 = -dKLs/dlogbetas
+  D1s += [D1]
+  drecons = np.array([split_recons[j][i+1]-split_recons[j][i] for i in range(len(split_recons[j])-1)])
+  dbetasqrs = np.array([np.square(split_betas[j][i+1])-np.square(split_betas[j][i]) for i in range(len(split_KLs[j])-1)])
+  D2 = drecons/dbetasqrs
+  D2s += [D2]
+  fig = plt.figure()
+  plt.plot(split_betas[j][:-1],D1,linestyle=style)
+  plt.plot(split_betas[j][:-1],D2,linestyle=style)
+  plt.ylim([0,10])
+  plt.semilogx()
+  ax = fig.axes[0]
+  sec_ax = ax.secondary_xaxis('top',functions=(beta_to_betap,betap_to_beta))
+  plt.savefig(file_prefix +'Ds_' + str(j) + '.png')
+  plt.show()
+  
 fig = plt.figure()
-y_pred ,z_mean, z_log_var, losses, _ = outs_array[0]
-
-KL=kl_loss(z_mean, z_log_var)
-sort_kl = np.flip(np.argsort(np.mean(KL,axis=0)))
-
-rms_mean = np.sqrt(np.mean(np.square(z_mean),axis=0))
-
-plt.scatter(np.mean(KL,axis=0),rms_mean,s=5.)
-plt.xlim([-0.1,None])
-plt.ylim([-0.1,None])
-plt.xlabel('KL divergence')
-plt.ylabel(r'$\sqrt{\left\langle \mu^2 \right\rangle}$')
-plt.savefig(file_prefix + 'KL_scatter.png')
-
-
+for j in range(len(split_betas)):
+  style = '-'
+  if i%2 == 1:
+    style = '--'
+  plt.plot(split_betas[j][:-1],D1s[j],color = colors[int(math.floor(j/2))],linestyle=style)
+  plt.plot(split_betas[j][:-1],D2s[j],color = colors[int(math.floor(j/2))],linestyle=style)
+  plt.ylim([0,10])
+  plt.semilogx()
+ax = fig.axes[0]
+sec_ax = ax.secondary_xaxis('top',functions=(beta_to_betap,betap_to_beta))
+plt.savefig(file_prefix +'Ds_all.png')
 plt.show()
