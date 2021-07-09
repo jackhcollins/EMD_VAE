@@ -1,16 +1,37 @@
 import argparse
+import os
+import os.path as osp
+import sys
+import json
 
-parser = argparse.ArgumentParser(description='Plot jets')
+parser = argparse.ArgumentParser(description='Plot VAE training info')
 parser.add_argument('model_dir')
 parser.add_argument('--img_prefix')
 parser.add_argument('--utils')
-
+parser.add_argument('--img_title')
+parser.add_argument('--center',action="store_true")
+parser.add_argument('--parton',action="store_true")
 
 args = parser.parse_args()
 print(args)
 model_dir = args.model_dir
 vae_args_file = model_dir + "/vae_args.dat"
 
+with open(vae_args_file,'r') as f:
+  vae_arg_dict = json.loads(f.read())
+
+print("\n\n vae_arg_dict:", vae_arg_dict)
+
+latent_dim_lin = vae_arg_dict['latent_dim']
+use_vm = False
+if 'latent_dim_vm' in vae_arg_dict:
+  latent_dim_vm = vae_arg_dict['latent_dim_vm']
+  use_vm = True
+  print("Using VM mode")
+else:
+  print("Not using VM mode")
+  latent_dim_vm = 0
+latent_dim = latent_dim_lin + latent_dim_vm
 
 if args.img_prefix:
   file_prefix = args.img_prefix
@@ -37,11 +58,6 @@ if gpus:
 
 import tensorflow.keras as keras
 import tensorflow.keras.backend as K
-
-import os
-import os.path as osp
-import sys
-import json
 
 import numpy as np
 #from scipy import linalg as LA
@@ -226,15 +242,24 @@ def plot_jets(outs_array, numplot = 3, R=0.02,size=50):
         plt.show()
         
 def plot_KL_logvar(outs_array,xlim=None,ylim=None,showhist=False, numhists=10,hist_ylim=None,hist_xlim=None):
-    
-    y_pred ,z_mean, z_log_var, _ = outs_array[0]
 
-    KL = kl_loss(z_mean, z_log_var)
+    if use_vm:
+      y_pred ,z_mean, z_log_var, losses, _ = outs_array[0]
+      KL = losses
+    else:
+      y_pred ,z_mean, z_log_var, _ = outs_array[0]
+      KL=kl_loss(z_mean, z_log_var)
+
     sort_kl = np.flip(np.argsort(np.mean(KL,axis=0)))
 
     rms_mean = np.sqrt(np.mean(np.square(z_mean),axis=0))
 
-    plt.scatter(np.mean(KL,axis=0),rms_mean,s=5.)
+    if use_vm:
+      plt.scatter(np.mean(KL[:,:latent_dim_lin],axis=0),rms_mean[:latent_dim_lin],s=5.)
+      plt.scatter(np.mean(KL[:,latent_dim_lin:],axis=0),rms_mean[latent_dim_lin:],s=5.)
+    else:
+      plt.scatter(np.mean(KL,axis=0),rms_mean,s=5.)
+
 
     if ylim:
         plt.ylim(ylim)
@@ -259,7 +284,10 @@ def plot_KL_logvar(outs_array,xlim=None,ylim=None,showhist=False, numhists=10,hi
 
 
 # path to file
-fn =  '/scratch/jcollins/monoW-data-parton.h5'
+if args.parton:
+  fn =  '/scratch/jcollins/monoW-data-parton.h5'
+else:
+  fn =  '/scratch/jcollins/monoW-data-3.h5'
 
 df = pandas.read_hdf(fn,stop=100000)
 print(df.shape)
@@ -271,7 +299,8 @@ HT = np.sum(data[:,:,0],axis=-1)
 data[:,:,0] = data[:,:,0]/HT[:,None]
 data[:,:,-1] = data[:,:,-1]/HT[:,None]
 
-data = center_jets_ptetaphiE(data)
+if args.center:
+  data = center_jets_ptetaphiE(data)
 
 sig_input = np.zeros((len(data),2,4))
 sig_input[:,:,:2] = data[:,:,:2]
@@ -290,11 +319,6 @@ valid_y = data_y[50000:]
 
 
 train_output_dir = model_dir #create_dir(osp.join(output_dir, experiment_name))
-
-with open(vae_args_file,'r') as f:
-  vae_arg_dict = json.loads(f.read())
-
-print("\n\n vae_arg_dict:", vae_arg_dict)
 
 vae, encoder, decoder = build_and_compile_annealing_vae(**vae_arg_dict)
 
@@ -326,7 +350,8 @@ def get_beta(file):
 epoch_string=re.compile('_\d*_')
 beta_string=re.compile('\d\.[\w\+-]*')
 files = glob.glob(train_output_dir + '/model_weights_end*.hdf5')
-print("Found files:", files)
+print("Found files:")
+print(*files,sep='\n')
 files.sort(key=os.path.getmtime)
 epochs = np.array([get_epoch(file) for file in files])
 betas = np.array([get_beta(file) for file in files])
@@ -337,6 +362,9 @@ recons = []
 
 
 start=0
+
+KLs_array = np.zeros((len(files[start:]), latent_dim))
+
 for i, file in enumerate(files[start:]):
 #     print("Loading", file)
     if i%10 == 0:
@@ -344,6 +372,19 @@ for i, file in enumerate(files[start:]):
     vae.load_weights(file)
     vae.beta.assign(betas[i+start])
     outs_array = [vae.predict(valid_x[:1000]) for j in range(1)]
+
+    if use_vm:
+      _, z_mean, z_log_var, kllosses, z = outs_array[0]
+      KLs_array[i] = np.mean(kllosses,axis=0)
+    else:
+      _, z_mean, z_log_var, z = outs_array[0]
+      KLs_array[i] = np.mean(kl_loss(z_mean, z_log_var),axis=0)
+
+    fig = plt.figure()
+    plot_KL_logvar(outs_array,[-0.1,None],[-0.1,None])
+    plt.title('Epoch: ' + str(epochs[i+start]) + ', beta: ' + str(betas[i+start]))
+    plt.savefig(file_prefix + 'KL_scatter_' + str(i) + '.png')
+    plt.show()
     result = vae.test_step([valid_x[:2000].astype(np.float32),valid_y[:2000].astype(np.float32)])
     
     losses += [result['loss'].numpy()]
@@ -371,6 +412,7 @@ split_betas = split_data(betas)
 split_losses = split_data(losses)
 split_KLs = split_data(KLs)
 split_recons = split_data(recons)
+split_KLs_array = split_data(KLs_array)
 
 print(split_betas)
 
@@ -384,6 +426,20 @@ import math
 n=int(math.ceil(len(split_betas)/2))
 colors = [cmap(1.*i/(n) ) for i in range(n)]
 # colors = ['C0','C1','C1','C2','C2']
+
+for i in range(len(split_betas)):
+  fig = plt.figure()
+  for j in range(latent_dim_lin):
+    plt.plot(split_betas[i],split_KLs_array[i][:,j],color='C0')
+  for j in range(latent_dim_lin,latent_dim_lin + latent_dim_vm):
+    plt.plot(split_betas[i],split_KLs_array[i][:,j],color='C1')
+  plt.semilogx()
+  ax = fig.axes[0]
+  sec_ax = ax.secondary_xaxis('top',functions=(beta_to_betap,betap_to_beta))
+  plt.title(args.img_title)
+  plt.savefig(file_prefix +'all_KLs_' + str(i) + '.png')
+  plt.show()
+
 fig = plt.figure()
 for i in range(len(split_betas)):
     style = '-'
@@ -398,6 +454,7 @@ plt.ylabel(r'Loss')
 #plt.xlim(1e-2,1.)
 ax = fig.axes[0]
 sec_ax = ax.secondary_xaxis('top',functions=(beta_to_betap,betap_to_beta))
+plt.title(args.img_title)
 plt.savefig(file_prefix +'loss.png')
 plt.show()
 
@@ -416,6 +473,7 @@ ax = fig.axes[0]
 sec_ax = ax.secondary_xaxis('top',functions=(beta_to_betap,betap_to_beta))
 #plt.xlim(1e-2,1.)
 #plt.ylim(1e-4,None)
+plt.title(args.img_title)
 plt.savefig(file_prefix +'losstimebetasqr.png')
 plt.show()
 
@@ -433,6 +491,7 @@ ax = fig.axes[0]
 sec_ax = ax.secondary_xaxis('top',functions=(beta_to_betap,betap_to_beta))
 #plt.ylim(1e-4,None)
 #plt.xlim(1e-2,1.)
+plt.title(args.img_title)
 plt.savefig(file_prefix +'reconloss.png')
 plt.show()
 
@@ -450,6 +509,7 @@ ax = fig.axes[0]
 sec_ax = ax.secondary_xaxis('top',functions=(beta_to_betap,betap_to_beta))
 plt.xlabel(r'$\beta$')
 plt.ylabel(r'KL Loss')
+plt.title(args.img_title)
 plt.savefig(file_prefix +'KL.png')
 plt.show()
 
@@ -492,6 +552,7 @@ for j in range(len(split_betas)):
   plt.semilogx()
   ax = fig.axes[0]
   sec_ax = ax.secondary_xaxis('top',functions=(beta_to_betap,betap_to_beta))
+  plt.title(args.img_title)
   plt.savefig(file_prefix +'Ds_' + str(j) + '.png')
   plt.show()
   
@@ -506,5 +567,9 @@ for j in range(len(split_betas)):
   plt.semilogx()
 ax = fig.axes[0]
 sec_ax = ax.secondary_xaxis('top',functions=(beta_to_betap,betap_to_beta))
+plt.title(args.img_title)
 plt.savefig(file_prefix +'Ds_all.png')
 plt.show()
+
+
+print("Finished succesfully")

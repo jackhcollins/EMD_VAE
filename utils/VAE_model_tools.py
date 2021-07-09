@@ -7,6 +7,8 @@ from tensorflow.keras.layers import Flatten, Reshape, Lambda
 from tensorflow.keras.utils import plot_model
 from tensorflow.keras import Model
 from utils.tf_sinkhorn import ground_distance_tf_nograd, sinkhorn_knopp_tf_scaling_stabilized_class
+from tensorflow.python.keras.utils import tf_utils
+
 
 import tensorflow_probability as tfp
 tfd = tfp.distributions
