@@ -7,6 +7,7 @@ from tensorflow.keras.layers import Flatten, Reshape, Lambda
 from tensorflow.keras.utils import plot_model
 from tensorflow.keras import Model
 from utils.tf_sinkhorn import ground_distance_tf_nograd, sinkhorn_knopp_tf_scaling_stabilized_class
+from tensorflow.python.keras.utils import tf_utils
 
 import tensorflow_probability as tfp
 tfd = tfp.distributions
@@ -154,7 +155,7 @@ def build_and_compile_annealing_vae(encoder_conv_layers = [256,256,256,256],
             layer = keras.layers.Dropout(dropout,noise_shape=(None,1,layer_size))(layer)
     
     # Sum layer
-    layer = tf.keras.backend.sum(layer,axis=1)
+    layer = tf.keras.backend.sum(layer,axis=1)/np.sqrt(num_particles_in)
 
     # Dense layers
     for size in dense_size:
