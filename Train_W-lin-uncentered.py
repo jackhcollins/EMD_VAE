@@ -228,17 +228,23 @@ def center_jets_ptetaphiE(jets):
     # path to file
 if args.parton:
   fn =  '/scratch/jcollins/monoW-data-parton.h5'
+  numparts = 2
+  print("Using parton data")
+  numtrain = 1500000
 else:
   fn =  '/scratch/jcollins/monoW-data-3.h5'
+  numparts = 50
+  print("Using particle data")
+  numtrain = 500000
 
-# Option 1: Load everything into memory
+print("Loading ", fn)
 df = pandas.read_hdf(fn,stop=2000000)
 print(df.shape)
 print("Memory in GB:",sum(df.memory_usage(deep=True)) / (1024**3)+sum(df.memory_usage(deep=True)) / (1024**3))
 
 
 # Data file contains, for each event, 50 particles (with zero padding), each particle with pT, eta, phi, E.
-data = df.values.reshape((-1,2,4))
+data = df.values.reshape((-1,numparts,4))
 #data = center_jets_ptetaphiE(data)
 
 # Normalize pTs so that HT = 1
@@ -250,7 +256,7 @@ data[:,:,-1] = data[:,:,-1]/HT[:,None]
 # Separated phi into cos and sin for continuity around full detector, so make things easier for NN.
 # Also adding the log E is mainly because it seems like it should make things easier for NN, since there is an exponential spread in particle energies.
 # Feel free to change these choices as desired. E.g. px, py might be equally as good as pt, sin, cos.
-sig_input = np.zeros((len(data),2,4))
+sig_input = np.zeros((len(data),numparts,4))
 sig_input[:,:,:2] = data[:,:,:2]
 sig_input[:,:,2] = np.cos(data[:,:,2])
 sig_input[:,:,3] = np.sin(data[:,:,2])
@@ -262,10 +268,10 @@ data_x = sig_input
 data_y = data[:,:,:3]
 
 
-train_x = data_x[:1500000]
-train_y = data_y[:1500000]
-valid_x = data_x[1500000:1500000+100000]
-valid_y = data_y[1500000:1500000+100000]
+train_x = data_x[:numtrain]
+train_y = data_y[:numtrain]
+valid_x = data_x[numtrain:numtrain+100000]
+valid_y = data_y[numtrain:numtrain+100000]
 
 
 #output_dir = '/scratch/jcollins'
@@ -282,7 +288,7 @@ if model_file is None:
                   "reg_final": 0.01,
                   "stopThr": 1e-3,
                   "num_inputs": 4,           # Size of x (e.g. pT, eta, sin, cos, log E)
-                  "num_particles_in": 2,
+                  "num_particles_in": numparts,
                   "latent_dim": 256,
                   "verbose": 1,
                   "dropout": 0.}
@@ -359,7 +365,7 @@ while i < len(betas):
 
     my_history = vae.fit(x=train_x, y=train_y, batch_size=batch_size,
                 epochs=init_epoch + max_epoch_per_step,verbose=2,
-                validation_data = (valid_x[:200*batch_size],valid_y[:200*batch_size]),
+                         validation_data = (valid_x[:100000],valid_y[:100000]),
                 callbacks = callbacks,
                 initial_epoch=init_epoch,
                 steps_per_epoch = steps_per_epoch
