@@ -1,5 +1,6 @@
 import os
 import os.path as osp
+import psutil
 import sys
 import json
 import argparse
@@ -231,17 +232,23 @@ def center_jets_ptetaphiE(jets):
     # path to file
 if args.parton:
   fn =  '/scratch/jcollins/monoW-data-parton.h5'
+  numparts = 2
+  numtrain = 1500000
+  print("Using parton data")
 else:
   fn =  '/scratch/jcollins/monoW-data-3.h5'
+  numparts = 50
+  numtrain = 500000
+  print("Using particle data")
 
-# Option 1: Load everything into memory
+print("Loading ", fn)
 df = pandas.read_hdf(fn,stop=2000000)
 print(df.shape)
 print("Memory in GB:",sum(df.memory_usage(deep=True)) / (1024**3)+sum(df.memory_usage(deep=True)) / (1024**3))
 
 
 # Data file contains, for each event, 50 particles (with zero padding), each particle with pT, eta, phi, E.
-data = df.values.reshape((-1,2,4))
+data = df.values.reshape((-1,numparts,4))
 #data = center_jets_ptetaphiE(data)
 
 # Normalize pTs so that HT = 1
@@ -254,7 +261,7 @@ data[:,:,0] = data[:,:,0]/HT[:,None]
 # Separated phi into cos and sin for continuity around full detector, so make things easier for NN.
 # Also adding the log E is mainly because it seems like it should make things easier for NN, since there is an exponential spread in particle energies.
 # Feel free to change these choices as desired. E.g. px, py might be equally as good as pt, sin, cos.
-sig_input = np.zeros((len(data),2,4))
+sig_input = np.zeros((len(data),numparts,4))
 sig_input[:,:,:2] = data[:,:,:2]
 sig_input[:,:,2] = np.cos(data[:,:,2])
 sig_input[:,:,3] = np.sin(data[:,:,2])
@@ -266,10 +273,10 @@ data_x = sig_input
 data_y = data[:,:,:3]
 
 
-train_x = data_x[:1500000]
-train_y = data_y[:1500000]
-valid_x = data_x[1500000:1500000+200000]
-valid_y = data_y[1500000:1500000+200000]
+train_x = data_x[:numtrain]
+train_y = data_y[:numtrain]
+valid_x = data_x[numtrain:numtrain+100000]
+valid_y = data_y[numtrain:numtrain+100000]
 
 
 #output_dir = '/scratch/jcollins'
@@ -287,7 +294,7 @@ if model_file is None:
                   "reg_final": 0.01,
                   "stopThr": 1e-3,
                   "num_inputs": 4,           # Size of x (e.g. pT, eta, sin, cos, log E)
-                  "num_particles_in": 2,
+                  "num_particles_in": numparts,
                   "latent_dim": 128,
                   "latent_dim_vm": 128,
                   "verbose": 1,
@@ -312,53 +319,53 @@ if model_file is None:
              reset_metrics_inst]
   
   
-  print("Starting 1")
-  # Need to train on at least one example before model params can be loaded for annoying reasons.
-  beta = 1.
-  vae.beta.assign(beta)
-  
-  K.set_value(vae.optimizer.lr,1e-4)
-  
+#  print("Starting 1")
+#  # Need to train on at least one example before model params can be loaded for annoying reasons.
+#  beta = 1.
+#  vae.beta.assign(beta)
+#  
+#  K.set_value(vae.optimizer.lr,1e-5)
+#  
   # vae.train_step([train_x[:100].astype(np.float32),train_y[:100].astype(np.float32)])
   # print("Starting 2")
-  history = vae.fit(x=train_x, y=train_y, batch_size=batch_size,
-                    epochs=1,verbose=2,#initial_epoch=int(vae.optimizer.iterations/numbatches),
-                    validation_data = (valid_x[:10*batch_size],valid_y[:10*batch_size]),
-                    callbacks = callbacks,steps_per_epoch=1000
-                  )
+#  history = vae.fit(x=train_x, y=train_y, batch_size=batch_size,
+#                    epochs=1,verbose=2,#initial_epoch=int(vae.optimizer.iterations/numbatches),
+#                    validation_data = (valid_x[:10*batch_size],valid_y[:10*batch_size]),
+#                    callbacks = callbacks,steps_per_epoch=1000
+#                  )
   
-  vae.save_weights(train_output_dir + '/model_weights_temp.hdf5')
-  print("Starting 2")
+#  vae.save_weights(train_output_dir + '/model_weights_temp.hdf5')
+#  print("Starting 2")
+#  
+#  vae_arg_dict["renorm_clip"] = {'rmin':1./2,'rmax':2.,'dmax':2.}
+#  with open(vae_args_file,'w') as file:
+#    file.write(json.dumps(vae_arg_dict))
+#  vae, encoder, decoder = build_and_compile_annealing_vae(**vae_arg_dict)
+#  vae.load_weights(train_output_dir + '/model_weights_temp.hdf5')
+#  
+#  vae.beta.assign(beta)
+#  history = vae.fit(x=train_x, y=train_y, batch_size=batch_size,
+#                    epochs=1,verbose=2,#initial_epoch=int(vae.optimizer.iterations/numbatches),
+#                    validation_data = (valid_x[:10],valid_y[:10]),
+#                    callbacks = callbacks,steps_per_epoch=1000
+#                )
   
-  vae_arg_dict["renorm_clip"] = {'rmin':1./2,'rmax':2.,'dmax':2.}
-  with open(vae_args_file,'w') as file:
-    file.write(json.dumps(vae_arg_dict))
-  vae, encoder, decoder = build_and_compile_annealing_vae(**vae_arg_dict)
-  vae.load_weights(train_output_dir + '/model_weights_temp.hdf5')
+#  vae.save_weights(train_output_dir + '/model_weights_temp.hdf5')
   
-  vae.beta.assign(beta)
-  history = vae.fit(x=train_x, y=train_y, batch_size=batch_size,
-                    epochs=1,verbose=2,#initial_epoch=int(vae.optimizer.iterations/numbatches),
-                    validation_data = (valid_x[:10],valid_y[:10]),
-                    callbacks = callbacks,steps_per_epoch=1000
-                )
+#  vae_arg_dict["renorm_clip"] = {'rmin':1./5,'rmax':5.,'dmax':5.}
+#  with open(vae_args_file,'w') as file:
+#    file.write(json.dumps(vae_arg_dict))
+#  vae, encoder, decoder = build_and_compile_annealing_vae(**vae_arg_dict)
   
-  vae.save_weights(train_output_dir + '/model_weights_temp.hdf5')
+#  vae.load_weights(train_output_dir + '/model_weights_temp.hdf5')
+#  vae.beta.assign(beta)
+#  history = vae.fit(x=train_x, y=train_y, batch_size=batch_size,
+#                    epochs=1,verbose=2,#initial_epoch=int(vae.optimizer.iterations/numbatches),
+#                    validation_data = (valid_x[:10],valid_y[:10]),
+#                    callbacks = callbacks,steps_per_epoch=1000
+#                  )
   
-  vae_arg_dict["renorm_clip"] = {'rmin':1./5,'rmax':5.,'dmax':5.}
-  with open(vae_args_file,'w') as file:
-    file.write(json.dumps(vae_arg_dict))
-  vae, encoder, decoder = build_and_compile_annealing_vae(**vae_arg_dict)
-  
-  vae.load_weights(train_output_dir + '/model_weights_temp.hdf5')
-  vae.beta.assign(beta)
-  history = vae.fit(x=train_x, y=train_y, batch_size=batch_size,
-                    epochs=1,verbose=2,#initial_epoch=int(vae.optimizer.iterations/numbatches),
-                    validation_data = (valid_x[:10],valid_y[:10]),
-                    callbacks = callbacks,steps_per_epoch=1000
-                  )
-  
-  vae.save_weights(train_output_dir + '/model_weights_temp.hdf5')
+#  vae.save_weights(train_output_dir + '/model_weights_temp.hdf5')
 
 else:
 #  vae_arg_dict['dropout'] = 
@@ -371,7 +378,7 @@ else:
   
 beta_set_init = np.logspace(-3,np.log10(2.),20)
 betas = np.zeros(0)
-beta_set = np.logspace(np.log10(2.),-3,30)
+beta_set = np.logspace(np.log10(2.),-4,20)
 betas = np.append(betas, beta_set_init)
 
 for i in range(1,10,2):
@@ -428,6 +435,9 @@ max_epoch_per_step = 5
 switch_max_epochs = len(beta_set_init)
 
 while i < len(betas):
+
+    process = psutil.Process(os.getpid())
+    print("\n\n Memory used:",process.memory_info().rss,'\n\n')  # in bytes 
 
     beta = betas[i]
     
