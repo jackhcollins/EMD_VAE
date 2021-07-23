@@ -11,6 +11,7 @@ parser.add_argument('--utils')
 parser.add_argument('--img_title')
 parser.add_argument('--center',action="store_true")
 parser.add_argument('--parton',action="store_true")
+parser.add_argument('--data_path',default='/scratch/jcollins')
 
 args = parser.parse_args()
 print(args)
@@ -239,7 +240,7 @@ def plot_jets(outs_array, numplot = 3, R=0.02,size=50):
             ax[j].set_xlim([-0.7,0.7])
 
         plt.subplots_adjust(wspace=0, hspace=0)
-        plt.show()
+        #plt.show()
         
 def plot_KL_logvar(outs_array,xlim=None,ylim=None,showhist=False, numhists=10,hist_ylim=None,hist_xlim=None):
 
@@ -273,7 +274,7 @@ def plot_KL_logvar(outs_array,xlim=None,ylim=None,showhist=False, numhists=10,hi
     if showhist:
 #         for i in range(10):
         plt.hist(np.array(KL)[:,sort_kl[:numhists]],bins=np.linspace(0,20,80),stacked=True)
-        plt.show()
+        #plt.show()
         if hist_ylim:
             plt.ylim(hist_ylim)
         if hist_xlim:
@@ -285,12 +286,12 @@ def plot_KL_logvar(outs_array,xlim=None,ylim=None,showhist=False, numhists=10,hi
 
 # path to file
 if args.parton:
-  fn =  '/scratch/jcollins/monoW-data-parton.h5'
+  fn =  args.data_path + '/monoW-data-parton.h5'
   numparts = 2
   numtrain = 1500000
   print("Using parton data")
 else:
-  fn =  '/scratch/jcollins/monoW-data-3.h5'
+  fn =  args.data_path + '/monoW-data-3.h5'
   numparts = 50
   numtrain = 500000
   print("Using particle data")
@@ -390,7 +391,7 @@ for i, file in enumerate(files[start:]):
     plot_KL_logvar(outs_array,[-0.1,None],[-0.1,None])
     plt.title('Epoch: ' + str(epochs[i+start]) + ', beta: ' + str(betas[i+start]))
     plt.savefig(file_prefix + 'KL_scatter_' + str(i) + '_'+ str(betas[i+start]) + '.png')
-    plt.show()
+    #plt.show()
     result = vae.test_step([valid_x[:2000].astype(np.float32),valid_y[:2000].astype(np.float32)])
     
     losses += [result['loss'].numpy()]
@@ -438,7 +439,7 @@ plt.plot(betas)
 plt.semilogy()
 plt.title(args.img_title)
 plt.savefig(file_prefix +'betas.png')
-plt.show()
+#plt.show()
 
 for i in range(len(split_betas)):
   fig = plt.figure()
@@ -451,7 +452,7 @@ for i in range(len(split_betas)):
   sec_ax = ax.secondary_xaxis('top',functions=(beta_to_betap,betap_to_beta))
   plt.title(args.img_title)
   plt.savefig(file_prefix +'all_KLs_' + str(i) + '.png')
-  plt.show()
+  #plt.show()
 
 fig = plt.figure()
 for i in range(len(split_betas)):
@@ -469,7 +470,7 @@ ax = fig.axes[0]
 sec_ax = ax.secondary_xaxis('top',functions=(beta_to_betap,betap_to_beta))
 plt.title(args.img_title)
 plt.savefig(file_prefix +'loss.png')
-plt.show()
+#plt.show()
 
 fig = plt.figure()
 for i in range(len(split_betas)):
@@ -488,7 +489,7 @@ sec_ax = ax.secondary_xaxis('top',functions=(beta_to_betap,betap_to_beta))
 #plt.ylim(1e-4,None)
 plt.title(args.img_title)
 plt.savefig(file_prefix +'losstimebetasqr.png')
-plt.show()
+#plt.show()
 
 fig = plt.figure()
 for i in range(len(split_betas)):
@@ -506,7 +507,7 @@ sec_ax = ax.secondary_xaxis('top',functions=(beta_to_betap,betap_to_beta))
 #plt.xlim(1e-2,1.)
 plt.title(args.img_title)
 plt.savefig(file_prefix +'reconloss.png')
-plt.show()
+#plt.show()
 
 fig = plt.figure()
 for i in range(len(split_betas)):
@@ -524,7 +525,7 @@ plt.xlabel(r'$\beta$')
 plt.ylabel(r'KL Loss')
 plt.title(args.img_title)
 plt.savefig(file_prefix +'KL.png')
-plt.show()
+#plt.show()
 
 #fig = plt.figure()
 #y_pred ,z_mean, z_log_var, losses, _ = outs_array[0]
@@ -567,7 +568,7 @@ for j in range(len(split_betas)):
   sec_ax = ax.secondary_xaxis('top',functions=(beta_to_betap,betap_to_beta))
   plt.title(args.img_title)
   plt.savefig(file_prefix +'Ds_' + str(j) + '.png')
-  plt.show()
+  #plt.show()
   
 fig = plt.figure()
 for j in range(len(split_betas)):
@@ -582,7 +583,7 @@ ax = fig.axes[0]
 sec_ax = ax.secondary_xaxis('top',functions=(beta_to_betap,betap_to_beta))
 plt.title(args.img_title)
 plt.savefig(file_prefix +'Ds_all.png')
-plt.show()
+#plt.show()
 
 
 print("Finished succesfully")

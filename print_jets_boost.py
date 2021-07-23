@@ -323,7 +323,7 @@ def plot_KL_logvar(outs_array,xlim=None,ylim=None,showhist=False, numhists=10,hi
     if showhist:
 #         for i in range(10):
         plt.hist(np.array(KL)[:,sort_kl[:numhists]],bins=np.linspace(0,20,80),stacked=True)
-        plt.show()
+        #plt.show()
         if hist_ylim:
             plt.ylim(hist_ylim)
         if hist_xlim:
@@ -454,13 +454,13 @@ plt.figure()
 plt.title(plt_title)
 sort_kl = plot_KL_logvar(outs_array,[-0.1,None],[-0.1,None])
 plt.savefig(file_prefix + plt_title + 'KL_scatter.png')
-plt.show()
+#plt.show()
 
 plt.figure()
 plt.title(plt_title)
 plot_jets(outs_array,R=0.02,size=100)
 plt.savefig(file_prefix + plt_title + 'recons.png')
-plt.show()
+#plt.show()
 
 if use_vm:
   _, z_mean, z_log_var, losses, z = outs_array[0]
@@ -473,7 +473,7 @@ plt.scatter(z_mean[:,sort_kl[0]],z_mean[:,sort_kl[1]],s=1.)
 plt.xlabel(r'$\sqrt{\left\langle \mu_0^2 \right\rangle}$')
 plt.ylabel(r'$\sqrt{\left\langle \mu_1^2 \right\rangle}$')
 plt.savefig(file_prefix + plt_title + 'scatter_mu0mu1.png')
-plt.show()
+#plt.show()
 
 if latent_dim > 4:
   plt.figure()
@@ -482,7 +482,7 @@ if latent_dim > 4:
   plt.xlabel(r'$\sqrt{\left\langle \mu_2^2 \right\rangle}$')
   plt.ylabel(r'$\sqrt{\left\langle \mu_3^2 \right\rangle}$')
   plt.savefig(file_prefix + plt_title + 'scatter_mu2mu3.png')
-  plt.show()
+  #plt.show()
 
 plt.figure()
 plt.title(plt_title)
@@ -490,7 +490,7 @@ plt.scatter(z_mean[:,sort_kl[0]],z_log_var[:,sort_kl[0]],s=1.)
 plt.xlabel(r'$\sqrt{\left\langle \mu_0^2 \right\rangle}$')
 plt.ylabel(r'$\left\langle \log \sigma_0 \right\rangle$')
 plt.savefig(file_prefix + plt_title + 'scatter_mu0sigma0.png')
-plt.show()
+#plt.show()
 
 plt.figure()
 plt.title(plt_title)
@@ -498,7 +498,7 @@ plt.scatter(z_mean[:,sort_kl[1]],z_log_var[:,sort_kl[1]],s=1.)
 plt.xlabel(r'$\sqrt{\left\langle \mu_1^2 \right\rangle}$')
 plt.ylabel(r'$\left\langle \log \sigma_1 \right\rangle$')
 plt.savefig(file_prefix + plt_title + 'scatter_mu1sigma1.png')
-plt.show()
+#plt.show()
 
 narray = 11
 lim = 3.0
@@ -533,7 +533,7 @@ for i in range(narray):
 ax[int((narray-1)/2),int((narray-1)/2)].set_facecolor([0.9,0.9,0.9])
 plt.subplots_adjust(wspace=0, hspace=0)
 plt.savefig(file_prefix + plt_title + 'jets_square_array_01.png')
-plt.show()
+#plt.show()
 
 
 if latent_dim > 4:
@@ -566,7 +566,7 @@ if latent_dim > 4:
   ax[int((narray-1)/2),int((narray-1)/2)].set_facecolor([0.9,0.9,0.9])
   plt.subplots_adjust(wspace=0, hspace=0)
   plt.savefig(file_prefix + plt_title + 'jets_square_array_23.png')
-  plt.show()
+  #plt.show()
 
 outs_array = [vae.predict(valid_x[:10000]) for j in range(0)]
 
@@ -632,6 +632,6 @@ plt.ylim([-outer_plotlim,outer_plotlim])
 # plt.subplots_adjust(wspace=0, hspace=0)
 # plt.axis('off')
 plt.savefig(file_prefix + plt_title + 'jets_nice_array_01.png')
-plt.show()
+#plt.show()
 
 print('Finished succesfully')
