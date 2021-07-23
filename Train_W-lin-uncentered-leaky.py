@@ -228,12 +228,12 @@ def center_jets_ptetaphiE(jets):
 
     # path to file
 if args.parton:
-  fn =  '/scratch/jcollins/monoW-data-parton.h5'
+  fn =  '~/projects/EMD_VAE/in_data/monoW-data-parton.h5'
   numparts = 2
   print("Using parton data")
   numtrain = 1500000
 else:
-  fn =  '/scratch/jcollins/monoW-data-3.h5'
+  fn =  '~/projects/EMD_VAE/in_data/monoW-data-3.h5'
   numparts = 50
   print("Using particle data")
   numtrain = 500000
@@ -305,7 +305,7 @@ if model_file is None:
 
 else:
 #  if start_i < end_dropout:
-#  vae_arg_dict["dropout"] = 0.1
+#    vae_arg_dict["dropout"] = 0.1
   vae, encoder, decoder = build_and_compile_annealing_vae(**vae_arg_dict)
   vae.fit(x=train_x[:1], y=train_y[:1], batch_size=1, epochs=1,verbose=2)
   vae.load_weights(model_file)
@@ -325,16 +325,17 @@ callbacks=[tf.keras.callbacks.CSVLogger(train_output_dir + '/log.csv', separator
            myTerminateOnNaN(),
            reset_metrics_inst]
 
-beta_set = np.logspace(-5,1,25)[:-3]
-betas = beta_set
+beta_set_init = np.logspace(-3,np.log10(2.),20)
+betas = np.zeros(0)
+beta_set = np.logspace(np.log10(2.),-3,20)
+betas = np.append(betas, beta_set_init)
+for i in range(1,10,2):
+  betas = np.append(betas, beta_set[i:i + 10])
+  betas = np.append(betas, np.flip(beta_set[i+1:i+9]))
 
-for i in range(0,16,2):
-  betas = np.append(betas, beta_set[-1-5-i:-1-i])
-
+betas = np.append(betas, beta_set[10+1:10+9])
 last_run_i = len(betas)
-
-betas = np.append(betas, beta_set)
-
+betas = np.append(betas, np.flip(beta_set)[1:])
 
 print(betas)
 
@@ -342,16 +343,16 @@ steps_per_epoch = 1000
 save_period = 10
 nan_counter = 0
 
-max_epoch_per_step = 10
-switch_max_epochs = len(beta_set)
+max_epoch_per_step = 5
+switch_max_epochs = len(beta_set_init)
 
 
 i = start_i
 
 while i < len(betas):
     beta = betas[i]
-    if i >= switch_max_epochs:
-      max_epoch_per_step = 50
+    if i == switch_max_epochs:
+      max_epoch_per_step = 300
     print("\n Changing beta to", beta)
 
     vae.beta.assign(beta)
@@ -361,7 +362,7 @@ while i < len(betas):
     else:
       K.set_value(vae.optimizer.lr,1e-5)
 
-#    K.set_value(vae.optimizer.beta_1,0.99)
+    K.set_value(vae.optimizer.beta_1,0.99)
 
     my_history = vae.fit(x=train_x, y=train_y, batch_size=batch_size,
                 epochs=init_epoch + max_epoch_per_step,verbose=2,
