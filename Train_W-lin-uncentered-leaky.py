@@ -1,12 +1,10 @@
 import os
 import os.path as osp
-import psutil
 import sys
 import json
 import argparse
 import glob
 import re
-import numpy as np
 import gc
 
 parser = argparse.ArgumentParser()
@@ -19,12 +17,20 @@ print(args)
 model_dir = args.model_dir
 vae_args_file = model_dir + "/vae_args.dat"
 
-
-
+init_epoch=0
+start_i = 0
+end_dropout = 120
 if args.model_file == 'last':
-  unordered_files = glob.glob(model_dir + '/model_weights_end*.hdf5')
+  files = glob.glob(model_dir + '/model_weights_end*.hdf5')
+  files.sort(key=os.path.getmtime)
+  model_file = files[-1]
+  with open(vae_args_file,'r') as f:
+    vae_arg_dict = json.loads(f.read())
 
-  start_i = len(unordered_files)
+  print("\n\n vae_arg_dict:", vae_arg_dict)
+
+  import re
+  start_i = len(files)
   def get_epoch(file):
     epoch = int(epoch_string.search(file).group()[1:-1])
     return epoch
@@ -36,20 +42,10 @@ if args.model_file == 'last':
   epoch_string=re.compile('_\d*_')
   beta_string=re.compile('\d\.[\w\+-]*')
 
-  epochs = np.array([get_epoch(fn) for fn in unordered_files])
-  ordering = np.argsort(epochs)
-  print(ordering)
-  files = [unordered_files[i] for i in ordering]
-  model_file = files[-1]
-  last_save = model_file
   init_epoch = get_epoch(model_file)
 
- # files.sort(key=os.path.getmtime)
-#  model_file = files[-1]
-  with open(vae_args_file,'r') as f:
-    vae_arg_dict = json.loads(f.read())
+  print("Starting from epoch", init_epoch)#, ", and beta", betas[start_i])
 
-#  print("\n\n vae_arg_dict:", vae_arg_dict)
 elif args.model_file is not None:
   model_fn = args.model_file
   model_file = model_dir + '/' + model_fn
@@ -61,7 +57,6 @@ elif args.model_file is not None:
 else:
   print("No model file specified, will train from beginning")
   model_file=None
-
 
 
 import tensorflow as tf
@@ -81,10 +76,11 @@ if gpus:
 import tensorflow.keras as keras
 import tensorflow.keras.backend as K
 
+import numpy as np
 
 from utils.tf_sinkhorn import ground_distance_tf_nograd, sinkhorn_knopp_tf_scaling_stabilized_class
-import utils.VAE_model_tools_vm_nobatchnorm
-from utils.VAE_model_tools_vm_nobatchnorm import build_and_compile_annealing_vae, betaVAEModel, reset_metrics, myTerminateOnNaN, loss_tracker
+import utils.VAE_model_tools_leaky
+from utils.VAE_model_tools_leaky import build_and_compile_annealing_vae, betaVAEModel, reset_metrics, loss_tracker, myTerminateOnNaN
 
 import pandas
 
@@ -95,6 +91,7 @@ if __name__ == "__main__":
     print(f"Arguments count: {len(sys.argv)}")
     for i, arg in enumerate(sys.argv):
         print(f"Argument {i:>6}: {arg}")
+
 
 
 def create_dir(dir_path):
@@ -124,6 +121,7 @@ def ptetaphiE_to_Epxpypz(jets):
     newjets[:,:,3] = pz
     
     return newjets
+
 
 def Epxpypz_to_ptetaphiE(jets):
 
@@ -183,8 +181,7 @@ def ptyphim_to_ptetaphiE(jets):
     newjets[:,:,3] = E
     
     return newjets
-
-
+    
 def center_jets_ptetaphiE(jets):
     cartesian_jets = ptetaphiE_to_Epxpypz(jets)
     sumjet_cartesian = np.sum(cartesian_jets,axis=1)
@@ -202,7 +199,7 @@ def center_jets_ptetaphiE(jets):
     E = sumjet_cartesian[:,0]
     pt = np.sqrt(np.square(sumjet_cartesian[:,1]) + np.square(sumjet_cartesian[:,2]))
     ptp = 550.
-    beta = (E*pt - ptp*np.sqrt(np.square(E) - np.square(pt) + np.square(ptp)))/(np.square(E) + np.square(ptp))
+    beta = (E*pt - ptp*np.sqrt(np.square(E) - np.square(pt) + np.square(ptp)))/(np.square(E) + np.square(ptp)) 
     gamma = 1/np.sqrt(1-np.square(beta))
 
     ptnews = gamma[:,None]*(cartesian_jets[:,:,1] - beta[:,None]*cartesian_jets[:,:,0])
@@ -216,31 +213,30 @@ def center_jets_ptetaphiE(jets):
     sumjet_y = 0.5*np.log((sumjet_cartesian[:,0] + sumjet_cartesian[:,-1])/(sumjet_cartesian[:,0] - sumjet_cartesian[:,-1]))
 
     newjets = Epxpypz_to_ptetaphiE(cartesian_jets)
-
+    
     ptyphim_jets = ptetaphiE_to_ptyphim(Epxpypz_to_ptetaphiE(cartesian_jets))
     ptyphim_jets[:,:,-1] = np.zeros(np.shape(ptyphim_jets[:,:,-1]))
     #print(ptyphim_jets[:3,:,:])
-
+    
     transformed_jets = np.copy(ptyphim_jets)
     transformed_jets[:,:,1] = ptyphim_jets[:,:,1] - sumjet_y[:,None]
 
     transformed_jets[transformed_jets[:,:,0] == 0] = 0
-
-    return ptyphim_to_ptetaphiE(transformed_jets)
     
+    return ptyphim_to_ptetaphiE(transformed_jets)
     
 
     # path to file
 if args.parton:
   fn =  '/scratch/jcollins/monoW-data-parton.h5'
   numparts = 2
-  numtrain = 1500000
   print("Using parton data")
+  numtrain = 1500000
 else:
   fn =  '/scratch/jcollins/monoW-data-3.h5'
   numparts = 50
-  numtrain = 500000
   print("Using particle data")
+  numtrain = 500000
 
 print("Loading ", fn)
 df = pandas.read_hdf(fn,stop=2000000)
@@ -255,8 +251,7 @@ data = df.values.reshape((-1,numparts,4))
 # Normalize pTs so that HT = 1
 HT = np.sum(data[:,:,0],axis=-1)
 data[:,:,0] = data[:,:,0]/HT[:,None]
-
-# Center jet (optional)
+data[:,:,-1] = data[:,:,-1]/HT[:,None]
 
 # Inputs x to NN will be: pT, eta, cos(phi), sin(phi), log E
 # Separated phi into cos and sin for continuity around full detector, so make things easier for NN.
@@ -283,9 +278,8 @@ valid_y = data_y[numtrain:numtrain+100000]
 #output_dir = '/scratch/jcollins'
 
 #experiment_name = 'W-parton-centered-vm-lin2'
-train_output_dir = model_dir #create_dir(osp.join(output_dir, experiment_name))
-
-
+train_output_dir = create_dir(model_dir)
+last_save = None
 if model_file is None:
   vae_arg_dict = {"encoder_conv_layers": [1024,1024,1024,1024],
                   "dense_size": [1024,1024,1024,1024],
@@ -296,182 +290,94 @@ if model_file is None:
                   "stopThr": 1e-3,
                   "num_inputs": 4,           # Size of x (e.g. pT, eta, sin, cos, log E)
                   "num_particles_in": numparts,
-                  "latent_dim": 128,
-                  "latent_dim_vm": 128,
+                  "latent_dim": 256,
                   "verbose": 1,
-                  "dropout": 0,
-                  "renorm_clip": {'rmin':1.,'rmax':1.,'dmax':0.} }
+                  "dropout": 0.}
   
   print("Saving vae_arg_dict to",vae_args_file)
   print("\n",vae_arg_dict)
-  
+
   with open(vae_args_file,'w') as file:
     file.write(json.dumps(vae_arg_dict))
-    
+
+  vae_arg_dict["dropout"] = 0.
   vae, encoder, decoder = build_and_compile_annealing_vae(**vae_arg_dict)
-  
-  
-  batch_size=100
-  
-  reduceLR = keras.callbacks.ReduceLROnPlateau(monitor='loss', factor=0.1, patience=2, verbose=1, mode='auto', min_delta=1e-4, cooldown=0, min_lr=0)
-  reset_metrics_inst = reset_metrics()
-  
-  callbacks=[reduceLR,
-             reset_metrics_inst]
-  
-  
-#  print("Starting 1")
-#  # Need to train on at least one example before model params can be loaded for annoying reasons.
-#  beta = 1.
-#  vae.beta.assign(beta)
-#  
-#  K.set_value(vae.optimizer.lr,1e-5)
-#  
-  # vae.train_step([train_x[:100].astype(np.float32),train_y[:100].astype(np.float32)])
-  # print("Starting 2")
-#  history = vae.fit(x=train_x, y=train_y, batch_size=batch_size,
-#                    epochs=1,verbose=2,#initial_epoch=int(vae.optimizer.iterations/numbatches),
-#                    validation_data = (valid_x[:10*batch_size],valid_y[:10*batch_size]),
-#                    callbacks = callbacks,steps_per_epoch=1000
-#                  )
-  
-#  vae.save_weights(train_output_dir + '/model_weights_temp.hdf5')
-#  print("Starting 2")
-#  
-#  vae_arg_dict["renorm_clip"] = {'rmin':1./2,'rmax':2.,'dmax':2.}
-#  with open(vae_args_file,'w') as file:
-#    file.write(json.dumps(vae_arg_dict))
-#  vae, encoder, decoder = build_and_compile_annealing_vae(**vae_arg_dict)
-#  vae.load_weights(train_output_dir + '/model_weights_temp.hdf5')
-#  
-#  vae.beta.assign(beta)
-#  history = vae.fit(x=train_x, y=train_y, batch_size=batch_size,
-#                    epochs=1,verbose=2,#initial_epoch=int(vae.optimizer.iterations/numbatches),
-#                    validation_data = (valid_x[:10],valid_y[:10]),
-#                    callbacks = callbacks,steps_per_epoch=1000
-#                )
-  
-#  vae.save_weights(train_output_dir + '/model_weights_temp.hdf5')
-  
-#  vae_arg_dict["renorm_clip"] = {'rmin':1./5,'rmax':5.,'dmax':5.}
-#  with open(vae_args_file,'w') as file:
-#    file.write(json.dumps(vae_arg_dict))
-#  vae, encoder, decoder = build_and_compile_annealing_vae(**vae_arg_dict)
-  
-#  vae.load_weights(train_output_dir + '/model_weights_temp.hdf5')
-#  vae.beta.assign(beta)
-#  history = vae.fit(x=train_x, y=train_y, batch_size=batch_size,
-#                    epochs=1,verbose=2,#initial_epoch=int(vae.optimizer.iterations/numbatches),
-#                    validation_data = (valid_x[:10],valid_y[:10]),
-#                    callbacks = callbacks,steps_per_epoch=1000
-#                  )
-  
-#  vae.save_weights(train_output_dir + '/model_weights_temp.hdf5')
 
 else:
-#  vae_arg_dict['dropout'] = 
-  print("\n\n vae_arg_dict:", vae_arg_dict)
+#  if start_i < end_dropout:
+#  vae_arg_dict["dropout"] = 0.1
   vae, encoder, decoder = build_and_compile_annealing_vae(**vae_arg_dict)
-  print("Loading", model_file)
-
+  vae.fit(x=train_x[:1], y=train_y[:1], batch_size=1, epochs=1,verbose=2)
   vae.load_weights(model_file)
+  last_save = model_file
 
-  
-beta_set_init = np.logspace(-3,np.log10(2.),20)
-betas = np.zeros(0)
-beta_set = np.logspace(np.log10(2.),-4,20)
-betas = np.append(betas, beta_set_init)
-
-for i in range(1,10,2):
-  betas = np.append(betas, beta_set[i:i + 10])
-  betas = np.append(betas, np.flip(beta_set[i+1:i+9]))
-
-betas = np.append(betas, beta_set[10+1:10+9])
-last_run_i = len(betas)
-betas = np.append(betas, np.flip(beta_set)[1:])
-
-print(betas)
-
-batch_size = 100
-steps_per_epoch = 1000
-save_period = 10
-
+batch_size=100
 reduceLR = keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=np.sqrt(0.1), patience=5, verbose=1, mode='auto', min_delta=1e-4, cooldown=0, min_lr=1e-8)
 earlystop = tf.keras.callbacks.EarlyStopping(
     monitor='val_loss', min_delta=0., patience=10, verbose=0, mode='auto',
     baseline=None, restore_best_weights=False
 )
 reset_metrics_inst = reset_metrics()
+
 callbacks=[tf.keras.callbacks.CSVLogger(train_output_dir + '/log.csv', separator=",", append=True),
-           reduceLR,earlystop,
-           reset_metrics_inst,
-           myTerminateOnNaN()]
+           reduceLR,
+           earlystop,
+           myTerminateOnNaN(),
+           reset_metrics_inst]
+
+beta_set = np.logspace(-5,1,25)[:-3]
+betas = beta_set
+
+for i in range(0,16,2):
+  betas = np.append(betas, beta_set[-1-5-i:-1-i])
+
+last_run_i = len(betas)
+
+betas = np.append(betas, beta_set)
 
 
-init_epoch=0
-start_i = 0
+print(betas)
 
-if args.model_file == 'last':
-  start_i = len(files)
-  def get_epoch(file):
-    epoch = int(epoch_string.search(file).group()[1:-1])
-    return epoch
-
-  def get_beta(file):
-    beta = float(beta_string.search(file).group())
-    return beta
-
-  epoch_string=re.compile('_\d*_')
-  beta_string=re.compile('\d\.[\w\+-]*')
-
-  init_epoch = get_epoch(model_file)
-
-  print("Starting from epoch", init_epoch, ", and beta", betas[start_i])
-
+steps_per_epoch = 1000
+save_period = 10
 nan_counter = 0
+
+max_epoch_per_step = 10
+switch_max_epochs = len(beta_set)
+
 
 i = start_i
 
-max_epoch_per_step = 5
-switch_max_epochs = len(beta_set_init)
-
 while i < len(betas):
-
-    process = psutil.Process(os.getpid())
-    print("\n\n Memory used:",process.memory_info().rss,'\n\n')  # in bytes 
-
     beta = betas[i]
-    
+    if i >= switch_max_epochs:
+      max_epoch_per_step = 50
     print("\n Changing beta to", beta)
 
     vae.beta.assign(beta)
 
-    if i >= switch_max_epochs:
-      max_epoch_per_step = 300
-
-    if i > last_run_i:
-      K.set_value(vae.optimizer.lr,1e-5)
-    else:
+    if i < last_run_i:
       K.set_value(vae.optimizer.lr,3e-5)
+    else:
+      K.set_value(vae.optimizer.lr,1e-5)
 
-    K.set_value(vae.optimizer.beta_1,0.99)
-    
+#    K.set_value(vae.optimizer.beta_1,0.99)
+
     my_history = vae.fit(x=train_x, y=train_y, batch_size=batch_size,
                 epochs=init_epoch + max_epoch_per_step,verbose=2,
-                validation_data = (valid_x[:100000],valid_y[:100000]),
+                         validation_data = (valid_x[:100000],valid_y[:100000]),
                 callbacks = callbacks,
                 initial_epoch=init_epoch,
                 steps_per_epoch = steps_per_epoch
               )
 
-    if np.isnan(vae.loss_tracker.result().numpy()):
+    if np.isnan(loss_tracker.result().numpy()):
       if nan_counter > 10:
         print(nan_counter, "NaNs. Too many. Quitting.")
         quit()
       if last_save:
         print("Went Nan, reloading", last_save)
         nan_counter = nan_counter + 1
-        vae_arg_dict["verbose"] = 0
         vae, encoder, decoder = build_and_compile_annealing_vae(**vae_arg_dict)
         vae.fit(x=train_x[:1], y=train_y[:1], batch_size=1, epochs=1,verbose=2)
         vae.load_weights(last_save)
@@ -484,6 +390,5 @@ while i < len(betas):
 
     last_save = train_output_dir + '/model_weights_end_' + str(init_epoch) + '_' + "{:.1e}".format(beta) + '.hdf5'
     vae.save_weights(last_save)
-
 
     gc.collect()

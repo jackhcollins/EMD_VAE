@@ -5,11 +5,12 @@ import json
 import argparse
 import glob
 import re
+import gc
 
 parser = argparse.ArgumentParser()
 parser.add_argument('model_dir')
 parser.add_argument('--model_file','--model_fn')
-parser.add_argument('parton',action='store_true')
+parser.add_argument('--parton',action='store_true')
 
 args = parser.parse_args()
 print(args)
@@ -43,7 +44,7 @@ if args.model_file == 'last':
 
   init_epoch = get_epoch(model_file)
 
-  print("Starting from epoch", init_epoch, ", and beta", betas[start_i])
+  print("Starting from epoch", init_epoch)#, ", and beta", betas[start_i])
 
 elif args.model_file is not None:
   model_fn = args.model_file
@@ -78,8 +79,8 @@ import tensorflow.keras.backend as K
 import numpy as np
 
 from utils.tf_sinkhorn import ground_distance_tf_nograd, sinkhorn_knopp_tf_scaling_stabilized_class
-import utils.VAE_model_tools
-from utils.VAE_model_tools import build_and_compile_annealing_vae, betaVAEModel, reset_metrics, loss_tracker, myTerminateOnNaN
+import utils.VAE_model_tools_old
+from utils.VAE_model_tools_old import build_and_compile_annealing_vae, betaVAEModel, reset_metrics, loss_tracker, myTerminateOnNaN
 
 import pandas
 
@@ -304,7 +305,7 @@ if model_file is None:
 
 else:
 #  if start_i < end_dropout:
-#    vae_arg_dict["dropout"] = 0.1
+#  vae_arg_dict["dropout"] = 0.1
   vae, encoder, decoder = build_and_compile_annealing_vae(**vae_arg_dict)
   vae.fit(x=train_x[:1], y=train_y[:1], batch_size=1, epochs=1,verbose=2)
   vae.load_weights(model_file)
@@ -333,6 +334,17 @@ for i in range(1,10,2):
   betas = np.append(betas, np.flip(beta_set[i+1:i+9]))
 
 betas = np.append(betas, beta_set[10+1:10+9])
+
+#beta_set = np.concatenate((beta_set,np.logspace(-3,-5,10)[1:]))
+
+#for i in range(10,20,2):
+#  betas = np.append(betas, beta_set[i:i + 10])
+#  betas = np.append(betas, np.flip(beta_set[i+1:i+9]))
+
+#betas = np.append(betas, beta_set[20+1:20+9])
+
+betas = np.append(betas,np.array([1e-4]))
+
 last_run_i = len(betas)
 betas = np.append(betas, np.flip(beta_set)[1:])
 
@@ -350,7 +362,7 @@ i = start_i
 
 while i < len(betas):
     beta = betas[i]
-    if i == switch_max_epochs:
+    if i >= switch_max_epochs:
       max_epoch_per_step = 300
     print("\n Changing beta to", beta)
 
@@ -391,3 +403,4 @@ while i < len(betas):
     last_save = train_output_dir + '/model_weights_end_' + str(init_epoch) + '_' + "{:.1e}".format(beta) + '.hdf5'
     vae.save_weights(last_save)
 
+    gc.collect()

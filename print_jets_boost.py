@@ -335,14 +335,21 @@ def plot_KL_logvar(outs_array,xlim=None,ylim=None,showhist=False, numhists=10,hi
 # path to file
 if args.parton:
   fn =  '/scratch/jcollins/monoW-data-parton.h5'
+  numparts = 2
+  numtrain = 1500000
+  print("Using parton data")
 else:
   fn =  '/scratch/jcollins/monoW-data-3.h5'
+  numparts = 50
+  numtrain = 500000
+  print("Using particle data")
+
 
 df = pandas.read_hdf(fn,stop=100000)
 print(df.shape)
 print("Memory in GB:",sum(df.memory_usage(deep=True)) / (1024**3)+sum(df.memory_usage(deep=True)) / (1024**3))
 
-data = df.values.reshape((-1,2,4))
+data = df.values.reshape((-1,numparts,4))
 if args.center:
   data = center_jets_ptetaphiE(data)
 
@@ -352,13 +359,13 @@ data[:,:,-1] = data[:,:,-1]/HT[:,None]
 
 
 if vae_arg_dict["num_inputs"] == 5:
-   sig_input = np.zeros((len(data),2,5))
+   sig_input = np.zeros((len(data),numparts,5))
    sig_input[:,:,:2] = data[:,:,:2]
    sig_input[:,:,2] = np.cos(data[:,:,2])
    sig_input[:,:,3] = np.sin(data[:,:,2])
    sig_input[:,:,4] = (np.log(data[:,:,0]+1e-4)/np.log(1e+4) + 1)
 else:
-   sig_input = np.zeros((len(data),2,4))
+   sig_input = np.zeros((len(data),numparts,4))
    sig_input[:,:,:2] = data[:,:,:2]
    sig_input[:,:,2] = np.cos(data[:,:,2])
    sig_input[:,:,3] = np.sin(data[:,:,2])
@@ -450,7 +457,7 @@ plt.show()
 
 plt.figure()
 plt.title(plt_title)
-plot_jets(outs_array,R=0.05,size=300)
+plot_jets(outs_array,R=0.02,size=100)
 plt.savefig(file_prefix + plt_title + 'recons.png')
 plt.show()
 

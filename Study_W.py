@@ -286,14 +286,20 @@ def plot_KL_logvar(outs_array,xlim=None,ylim=None,showhist=False, numhists=10,hi
 # path to file
 if args.parton:
   fn =  '/scratch/jcollins/monoW-data-parton.h5'
+  numparts = 2
+  numtrain = 1500000
+  print("Using parton data")
 else:
   fn =  '/scratch/jcollins/monoW-data-3.h5'
+  numparts = 50
+  numtrain = 500000
+  print("Using particle data")
 
 df = pandas.read_hdf(fn,stop=100000)
 print(df.shape)
 print("Memory in GB:",sum(df.memory_usage(deep=True)) / (1024**3)+sum(df.memory_usage(deep=True)) / (1024**3))
 
-data = df.values.reshape((-1,2,4))
+data = df.values.reshape((-1,numparts,4))
 
 HT = np.sum(data[:,:,0],axis=-1)
 data[:,:,0] = data[:,:,0]/HT[:,None]
@@ -302,7 +308,7 @@ data[:,:,-1] = data[:,:,-1]/HT[:,None]
 if args.center:
   data = center_jets_ptetaphiE(data)
 
-sig_input = np.zeros((len(data),2,4))
+sig_input = np.zeros((len(data),numparts,4))
 sig_input[:,:,:2] = data[:,:,:2]
 sig_input[:,:,2] = np.cos(data[:,:,2])
 sig_input[:,:,3] = np.sin(data[:,:,2])
@@ -383,7 +389,7 @@ for i, file in enumerate(files[start:]):
     fig = plt.figure()
     plot_KL_logvar(outs_array,[-0.1,None],[-0.1,None])
     plt.title('Epoch: ' + str(epochs[i+start]) + ', beta: ' + str(betas[i+start]))
-    plt.savefig(file_prefix + 'KL_scatter_' + str(i) + '.png')
+    plt.savefig(file_prefix + 'KL_scatter_' + str(i) + '_'+ str(betas[i+start]) + '.png')
     plt.show()
     result = vae.test_step([valid_x[:2000].astype(np.float32),valid_y[:2000].astype(np.float32)])
     
@@ -426,6 +432,13 @@ import math
 n=int(math.ceil(len(split_betas)/2))
 colors = [cmap(1.*i/(n) ) for i in range(n)]
 # colors = ['C0','C1','C1','C2','C2']
+
+fig=plt.figure()
+plt.plot(betas)
+plt.semilogy()
+plt.title(args.img_title)
+plt.savefig(file_prefix +'betas.png')
+plt.show()
 
 for i in range(len(split_betas)):
   fig = plt.figure()
