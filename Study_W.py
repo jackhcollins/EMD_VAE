@@ -391,7 +391,7 @@ for i, file in enumerate(files[start:]):
     plot_KL_logvar(outs_array,[-0.1,None],[-0.1,None])
     plt.title('Epoch: ' + str(epochs[i+start]) + ', beta: ' + str(betas[i+start]))
     plt.savefig(file_prefix + 'KL_scatter_' + str(i) + '_'+ str(betas[i+start]) + '.png')
-    #plt.show()
+    plt.close()
     result = vae.test_step([valid_x[:2000].astype(np.float32),valid_y[:2000].astype(np.float32)])
     
     losses += [result['loss'].numpy()]
@@ -439,7 +439,7 @@ plt.plot(betas)
 plt.semilogy()
 plt.title(args.img_title)
 plt.savefig(file_prefix +'betas.png')
-#plt.show()
+plt.close()
 
 for i in range(len(split_betas)):
   fig = plt.figure()
@@ -452,7 +452,7 @@ for i in range(len(split_betas)):
   sec_ax = ax.secondary_xaxis('top',functions=(beta_to_betap,betap_to_beta))
   plt.title(args.img_title)
   plt.savefig(file_prefix +'all_KLs_' + str(i) + '.png')
-  #plt.show()
+  plt.close()
 
 fig = plt.figure()
 for i in range(len(split_betas)):
@@ -470,7 +470,7 @@ ax = fig.axes[0]
 sec_ax = ax.secondary_xaxis('top',functions=(beta_to_betap,betap_to_beta))
 plt.title(args.img_title)
 plt.savefig(file_prefix +'loss.png')
-#plt.show()
+plt.close()
 
 fig = plt.figure()
 for i in range(len(split_betas)):
@@ -489,7 +489,7 @@ sec_ax = ax.secondary_xaxis('top',functions=(beta_to_betap,betap_to_beta))
 #plt.ylim(1e-4,None)
 plt.title(args.img_title)
 plt.savefig(file_prefix +'losstimebetasqr.png')
-#plt.show()
+plt.close()
 
 fig = plt.figure()
 for i in range(len(split_betas)):
@@ -507,7 +507,7 @@ sec_ax = ax.secondary_xaxis('top',functions=(beta_to_betap,betap_to_beta))
 #plt.xlim(1e-2,1.)
 plt.title(args.img_title)
 plt.savefig(file_prefix +'reconloss.png')
-#plt.show()
+plt.close()
 
 fig = plt.figure()
 for i in range(len(split_betas)):
@@ -525,7 +525,7 @@ plt.xlabel(r'$\beta$')
 plt.ylabel(r'KL Loss')
 plt.title(args.img_title)
 plt.savefig(file_prefix +'KL.png')
-#plt.show()
+plt.close()
 
 #fig = plt.figure()
 #y_pred ,z_mean, z_log_var, losses, _ = outs_array[0]
@@ -541,7 +541,7 @@ plt.savefig(file_prefix +'KL.png')
 #plt.xlabel('KL divergence')
 #plt.ylabel(r'$\sqrt{\left\langle \mu^2 \right\rangle}$')
 #plt.savefig(file_prefix + 'KL_scatter.png')
-#plt.show()
+plt.close()
 
 
 
@@ -568,7 +568,7 @@ for j in range(len(split_betas)):
   sec_ax = ax.secondary_xaxis('top',functions=(beta_to_betap,betap_to_beta))
   plt.title(args.img_title)
   plt.savefig(file_prefix +'Ds_' + str(j) + '.png')
-  #plt.show()
+  plt.close()
   
 fig = plt.figure()
 for j in range(len(split_betas)):
@@ -583,7 +583,7 @@ ax = fig.axes[0]
 sec_ax = ax.secondary_xaxis('top',functions=(beta_to_betap,betap_to_beta))
 plt.title(args.img_title)
 plt.savefig(file_prefix +'Ds_all.png')
-#plt.show()
+plt.close()
 
 
 print("Finished succesfully")
