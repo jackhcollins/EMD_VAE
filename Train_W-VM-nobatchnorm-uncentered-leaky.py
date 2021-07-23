@@ -13,11 +13,13 @@ parser = argparse.ArgumentParser()
 parser.add_argument('model_dir')
 parser.add_argument('--model_file','--model_fn')
 parser.add_argument('--parton',action='store_true')
+parser.add_argument('--data_path',default='/scratch/jcollins')
 
 args = parser.parse_args()
 print(args)
 model_dir = args.model_dir
 vae_args_file = model_dir + "/vae_args.dat"
+
 
 
 
@@ -232,12 +234,12 @@ def center_jets_ptetaphiE(jets):
 
     # path to file
 if args.parton:
-  fn =  '/scratch/jcollins/monoW-data-parton.h5'
+  fn =  args.data_path + '/monoW-data-parton.h5'
   numparts = 2
   numtrain = 1500000
   print("Using parton data")
 else:
-  fn =  '/scratch/jcollins/monoW-data-3.h5'
+  fn =  args.data_path + '/monoW-data-3.h5'
   numparts = 50
   numtrain = 500000
   print("Using particle data")
@@ -287,26 +289,33 @@ train_output_dir = model_dir #create_dir(osp.join(output_dir, experiment_name))
 
 
 if model_file is None:
-  vae_arg_dict = {"encoder_conv_layers": [1024,1024,1024,1024],
-                  "dense_size": [1024,1024,1024,1024],
-                  "decoder_sizes": [1024,1024,1024,1024,1024],
-                  "numIter": 10,
-                  "reg_init": 1.,
-                  "reg_final": 0.01,
-                  "stopThr": 1e-3,
-                  "num_inputs": 4,           # Size of x (e.g. pT, eta, sin, cos, log E)
-                  "num_particles_in": numparts,
-                  "latent_dim": 128,
-                  "latent_dim_vm": 128,
-                  "verbose": 1,
-                  "dropout": 0,
-                  "renorm_clip": {'rmin':1.,'rmax':1.,'dmax':0.} }
-  
-  print("Saving vae_arg_dict to",vae_args_file)
-  print("\n",vae_arg_dict)
-  
-  with open(vae_args_file,'w') as file:
-    file.write(json.dumps(vae_arg_dict))
+
+  if osp.exists(vae_args_file):
+    print("Loading", vae_args_file)
+    with open(vae_args_file,'r') as f:
+      vae_arg_dict = json.loads(f.read())
+  else:
+    print("Creating vae arg dict")
+    vae_arg_dict = {"encoder_conv_layers": [1024,1024,1024,1024],
+                    "dense_size": [1024,1024,1024,1024],
+                    "decoder_sizes": [1024,1024,1024,1024,1024],
+                    "numIter": 10,
+                    "reg_init": 1.,
+                    "reg_final": 0.01,
+                    "stopThr": 1e-3,
+                    "num_inputs": 4,           # Size of x (e.g. pT, eta, sin, cos, log E)
+                    "num_particles_in": numparts,
+                    "latent_dim": 128,
+                    "latent_dim_vm": 128,
+                    "verbose": 1,
+                    "dropout": 0,
+                    "renorm_clip": {'rmin':1.,'rmax':1.,'dmax':0.} }
+    
+    print("Saving vae_arg_dict to",vae_args_file)
+    print("\n",vae_arg_dict)
+    
+    with open(vae_args_file,'w') as file:
+      file.write(json.dumps(vae_arg_dict))
     
   vae, encoder, decoder = build_and_compile_annealing_vae(**vae_arg_dict)
   
@@ -376,19 +385,16 @@ else:
 
   vae.load_weights(model_file)
 
-  
-beta_set_init = np.logspace(-3,np.log10(2.),20)
-betas = np.zeros(0)
-beta_set = np.logspace(np.log10(2.),-4,20)
-betas = np.append(betas, beta_set_init)
 
-for i in range(1,10,2):
-  betas = np.append(betas, beta_set[i:i + 10])
-  betas = np.append(betas, np.flip(beta_set[i+1:i+9]))
+beta_set = np.logspace(-5,1,25)[:-3]
+betas = beta_set
 
-betas = np.append(betas, beta_set[10+1:10+9])
+for i in range(0,16,2):
+  betas = np.append(betas, beta_set[-1-5-i:-1-i])
+
 last_run_i = len(betas)
-betas = np.append(betas, np.flip(beta_set)[1:])
+betas = np.append(betas, beta_set)
+
 
 print(betas)
 
@@ -433,7 +439,7 @@ nan_counter = 0
 i = start_i
 
 max_epoch_per_step = 5
-switch_max_epochs = len(beta_set_init)
+switch_max_epochs = len(beta_set)
 
 while i < len(betas):
 
@@ -447,14 +453,14 @@ while i < len(betas):
     vae.beta.assign(beta)
 
     if i >= switch_max_epochs:
-      max_epoch_per_step = 300
+      max_epoch_per_step = 50
 
     if i > last_run_i:
       K.set_value(vae.optimizer.lr,1e-5)
     else:
       K.set_value(vae.optimizer.lr,3e-5)
 
-    K.set_value(vae.optimizer.beta_1,0.99)
+    # K.set_value(vae.optimizer.beta_1,0.99)
     
     my_history = vae.fit(x=train_x, y=train_y, batch_size=batch_size,
                 epochs=init_epoch + max_epoch_per_step,verbose=2,
