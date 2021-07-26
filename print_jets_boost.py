@@ -11,6 +11,7 @@ parser.add_argument('--parton',action="store_true")
 parser.add_argument('--numplotaxes',default=2,type=int)
 parser.add_argument('--setcode',default=None,type=int)
 parser.add_argument('--setcodeval',default=1,type=float)
+parser.add_argument('--data_path',default='/scratch/jcollins')
 
 args = parser.parse_args()
 print(args)
@@ -325,7 +326,7 @@ def plot_KL_logvar(outs_array,xlim=None,ylim=None,showhist=False, numhists=10,hi
     if showhist:
 #         for i in range(10):
         plt.hist(np.array(KL)[:,sort_kl[:numhists]],bins=np.linspace(0,20,80),stacked=True)
-        plt.show()
+        #plt.show()
         if hist_ylim:
             plt.ylim(hist_ylim)
         if hist_xlim:
@@ -337,12 +338,12 @@ def plot_KL_logvar(outs_array,xlim=None,ylim=None,showhist=False, numhists=10,hi
 
 # path to file
 if args.parton:
-  fn =  '/scratch/jcollins/monoW-data-parton.h5'
+  fn =  args.data_path + '/monoW-data-parton.h5'
   numparts = 2
   numtrain = 1500000
   print("Using parton data")
 else:
-  fn =  '/scratch/jcollins/monoW-data-3.h5'
+  fn =  args.data_path + '/monoW-data-3.h5'
   numparts = 50
   numtrain = 500000
   print("Using particle data")
@@ -456,13 +457,13 @@ plt.figure()
 plt.title(plt_title)
 sort_kl = plot_KL_logvar(outs_array,[-0.1,None],[-0.1,None])
 plt.savefig(file_prefix + plt_title + 'KL_scatter.png')
-plt.show()
+#plt.show()
 
 plt.figure()
 plt.title(plt_title)
 plot_jets(outs_array,R=0.02,size=100)
 plt.savefig(file_prefix + plt_title + 'recons.png')
-plt.show()
+#plt.show()
 
 if use_vm:
   _, z_mean, z_log_var, losses, z = outs_array[0]
@@ -475,7 +476,7 @@ plt.scatter(z_mean[:,sort_kl[0]],z_mean[:,sort_kl[1]],s=1.)
 plt.xlabel(r'$\sqrt{\left\langle \mu_0^2 \right\rangle}$')
 plt.ylabel(r'$\sqrt{\left\langle \mu_1^2 \right\rangle}$')
 plt.savefig(file_prefix + plt_title + 'scatter_mu0mu1.png')
-plt.show()
+#plt.show()
 
 if latent_dim > 4:
   plt.figure()
@@ -484,7 +485,7 @@ if latent_dim > 4:
   plt.xlabel(r'$\sqrt{\left\langle \mu_2^2 \right\rangle}$')
   plt.ylabel(r'$\sqrt{\left\langle \mu_3^2 \right\rangle}$')
   plt.savefig(file_prefix + plt_title + 'scatter_mu2mu3.png')
-  plt.show()
+  #plt.show()
 
 plt.figure()
 plt.title(plt_title)
@@ -492,7 +493,7 @@ plt.scatter(z_mean[:,sort_kl[0]],z_log_var[:,sort_kl[0]],s=1.)
 plt.xlabel(r'$\sqrt{\left\langle \mu_0^2 \right\rangle}$')
 plt.ylabel(r'$\left\langle \log \sigma_0 \right\rangle$')
 plt.savefig(file_prefix + plt_title + 'scatter_mu0sigma0.png')
-plt.show()
+#plt.show()
 
 plt.figure()
 plt.title(plt_title)
@@ -500,7 +501,7 @@ plt.scatter(z_mean[:,sort_kl[1]],z_log_var[:,sort_kl[1]],s=1.)
 plt.xlabel(r'$\sqrt{\left\langle \mu_1^2 \right\rangle}$')
 plt.ylabel(r'$\left\langle \log \sigma_1 \right\rangle$')
 plt.savefig(file_prefix + plt_title + 'scatter_mu1sigma1.png')
-plt.show()
+#plt.show()
 
 narray = 9
 lim = 3.14

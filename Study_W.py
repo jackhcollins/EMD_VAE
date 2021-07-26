@@ -11,6 +11,7 @@ parser.add_argument('--utils')
 parser.add_argument('--img_title')
 parser.add_argument('--center',action="store_true")
 parser.add_argument('--parton',action="store_true")
+parser.add_argument('--data_path',default='/scratch/jcollins')
 
 args = parser.parse_args()
 print(args)
@@ -285,12 +286,12 @@ def plot_KL_logvar(outs_array,xlim=None,ylim=None,showhist=False, numhists=10,hi
 
 # path to file
 if args.parton:
-  fn =  '/scratch/jcollins/monoW-data-parton.h5'
+  fn =  args.data_path + '/monoW-data-parton.h5'
   numparts = 2
   numtrain = 1500000
   print("Using parton data")
 else:
-  fn =  '/scratch/jcollins/monoW-data-3.h5'
+  fn =  args.data_path + '/monoW-data-3.h5'
   numparts = 50
   numtrain = 500000
   print("Using particle data")
@@ -558,7 +559,7 @@ plt.close()
 #plt.xlabel('KL divergence')
 #plt.ylabel(r'$\sqrt{\left\langle \mu^2 \right\rangle}$')
 #plt.savefig(file_prefix + 'KL_scatter.png')
-#plt.show()
+plt.close()
 
 
 
