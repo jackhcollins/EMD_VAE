@@ -6,6 +6,7 @@ import argparse
 import glob
 import re
 import gc
+import numpy as np
 
 parser = argparse.ArgumentParser()
 parser.add_argument('model_dir')
@@ -23,14 +24,19 @@ start_i = 0
 end_dropout = 120
 if args.model_file == 'last':
   files = glob.glob(model_dir + '/model_weights_end*.hdf5')
-  files.sort(key=os.path.getmtime)
-  model_file = files[-1]
+  #files.sort(key=os.path.getmtime)
+  #model_file = files[-1]
   with open(vae_args_file,'r') as f:
     vae_arg_dict = json.loads(f.read())
 
   print("\n\n vae_arg_dict:", vae_arg_dict)
 
+
   import re
+
+  epoch_string=re.compile('_\d*_')
+  beta_string=re.compile('\d\.[\w\+-]*')
+
   start_i = len(files)
   def get_epoch(file):
     epoch = int(epoch_string.search(file).group()[1:-1])
@@ -40,12 +46,15 @@ if args.model_file == 'last':
     beta = float(beta_string.search(file).group())
     return beta
 
-  epoch_string=re.compile('_\d*_')
-  beta_string=re.compile('\d\.[\w\+-]*')
+  epochs = np.array([get_epoch(model_file) for model_file in files])
+  sorted_args = np.argsort(epochs)
+  files = [files[index] for index in sorted_args]
+  model_file = files[-1]
 
   init_epoch = get_epoch(model_file)
 
   print("Starting from epoch", init_epoch)#, ", and beta", betas[start_i])
+
 
 elif args.model_file is not None:
   model_fn = args.model_file
@@ -77,7 +86,6 @@ if gpus:
 import tensorflow.keras as keras
 import tensorflow.keras.backend as K
 
-import numpy as np
 
 from utils.tf_sinkhorn import ground_distance_tf_nograd, sinkhorn_knopp_tf_scaling_stabilized_class
 import utils.VAE_model_tools_leaky
@@ -281,9 +289,7 @@ valid_y = data_y[numtrain:numtrain+100000]
 #experiment_name = 'W-parton-centered-vm-lin2'
 train_output_dir = create_dir(model_dir)
 last_save = None
-
 if model_file is None:
-
 
   if osp.exists(vae_args_file):
     print("Loading", vae_args_file)
@@ -302,13 +308,12 @@ if model_file is None:
                     "latent_dim": 256,
                     "verbose": 1,
                     "dropout": 0.}
-
+    
     print("Saving vae_arg_dict to",vae_args_file)
     print("\n",vae_arg_dict)
-
+    
     with open(vae_args_file,'w') as file:
       file.write(json.dumps(vae_arg_dict))
-
 
   vae, encoder, decoder = build_and_compile_annealing_vae(**vae_arg_dict)
 
@@ -317,6 +322,7 @@ else:
 #    vae_arg_dict["dropout"] = 0.1
   vae, encoder, decoder = build_and_compile_annealing_vae(**vae_arg_dict)
   vae.fit(x=train_x[:1], y=train_y[:1], batch_size=1, epochs=1,verbose=2)
+  print("Loading model", model_file)
   vae.load_weights(model_file)
   last_save = model_file
 
@@ -337,9 +343,11 @@ callbacks=[tf.keras.callbacks.CSVLogger(train_output_dir + '/log.csv', separator
 beta_set = np.logspace(-5,1,25)[:-3]
 betas = beta_set
 
-for i in range(0,16,2):
+for i in range(0,14,2):
+  betas = np.append(betas, np.flip(beta_set[-1-7-i+2:-1-i:2]))
   betas = np.append(betas, beta_set[-1-7-i:-1-i])
-
+i = i + 2
+betas = np.append(betas, np.flip(beta_set[-1-7-i+2:-1-i:2]))
 last_run_i = len(betas)
 betas = np.append(betas, beta_set)
 

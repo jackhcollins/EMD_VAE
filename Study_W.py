@@ -239,7 +239,7 @@ def plot_jets(outs_array, numplot = 3, R=0.02,size=50):
             ax[j].set_xlim([-0.7,0.7])
 
         plt.subplots_adjust(wspace=0, hspace=0)
-        plt.show()
+        #plt.show()
         
 def plot_KL_logvar(outs_array,xlim=None,ylim=None,showhist=False, numhists=10,hist_ylim=None,hist_xlim=None):
 
@@ -273,7 +273,7 @@ def plot_KL_logvar(outs_array,xlim=None,ylim=None,showhist=False, numhists=10,hi
     if showhist:
 #         for i in range(10):
         plt.hist(np.array(KL)[:,sort_kl[:numhists]],bins=np.linspace(0,20,80),stacked=True)
-        plt.show()
+        #plt.show()
         if hist_ylim:
             plt.ylim(hist_ylim)
         if hist_xlim:
@@ -356,10 +356,17 @@ def get_beta(file):
 epoch_string=re.compile('_\d*_')
 beta_string=re.compile('\d\.[\w\+-]*')
 files = glob.glob(train_output_dir + '/model_weights_end*.hdf5')
+
+epochs = np.array([get_epoch(model_file) for model_file in files])
+sorted_args = np.argsort(epochs)
+files = [files[index] for index in sorted_args]
+epochs = epochs[sorted_args]
+
 print("Found files:")
 print(*files,sep='\n')
-files.sort(key=os.path.getmtime)
-epochs = np.array([get_epoch(file) for file in files])
+
+
+
 betas = np.array([get_beta(file) for file in files])
 
 KLs = []
@@ -390,7 +397,8 @@ for i, file in enumerate(files[start:]):
     plot_KL_logvar(outs_array,[-0.1,None],[-0.1,None])
     plt.title('Epoch: ' + str(epochs[i+start]) + ', beta: ' + str(betas[i+start]))
     plt.savefig(file_prefix + 'KL_scatter_' + str(i) + '_'+ str(betas[i+start]) + '.png')
-    plt.show()
+    #plt.show()
+    plt.close()
     result = vae.test_step([valid_x[:2000].astype(np.float32),valid_y[:2000].astype(np.float32)])
     
     losses += [result['loss'].numpy()]
@@ -438,7 +446,10 @@ plt.plot(betas)
 plt.semilogy()
 plt.title(args.img_title)
 plt.savefig(file_prefix +'betas.png')
-plt.show()
+plt.xlabel('Iteration')
+plt.ylabel(r'$\beta$')
+#plt.show()
+plt.close()
 
 for i in range(len(split_betas)):
   fig = plt.figure()
@@ -451,7 +462,10 @@ for i in range(len(split_betas)):
   sec_ax = ax.secondary_xaxis('top',functions=(beta_to_betap,betap_to_beta))
   plt.title(args.img_title)
   plt.savefig(file_prefix +'all_KLs_' + str(i) + '.png')
-  plt.show()
+  plt.xlabel(r'$\beta$')
+  plt.ylabel('KL')
+  #plt.show()
+  plt.close()
 
 fig = plt.figure()
 for i in range(len(split_betas)):
@@ -469,7 +483,8 @@ ax = fig.axes[0]
 sec_ax = ax.secondary_xaxis('top',functions=(beta_to_betap,betap_to_beta))
 plt.title(args.img_title)
 plt.savefig(file_prefix +'loss.png')
-plt.show()
+#plt.show()
+plt.close()
 
 fig = plt.figure()
 for i in range(len(split_betas)):
@@ -488,7 +503,8 @@ sec_ax = ax.secondary_xaxis('top',functions=(beta_to_betap,betap_to_beta))
 #plt.ylim(1e-4,None)
 plt.title(args.img_title)
 plt.savefig(file_prefix +'losstimebetasqr.png')
-plt.show()
+#plt.show()
+plt.close()
 
 fig = plt.figure()
 for i in range(len(split_betas)):
@@ -506,7 +522,8 @@ sec_ax = ax.secondary_xaxis('top',functions=(beta_to_betap,betap_to_beta))
 #plt.xlim(1e-2,1.)
 plt.title(args.img_title)
 plt.savefig(file_prefix +'reconloss.png')
-plt.show()
+#plt.show()
+plt.close()
 
 fig = plt.figure()
 for i in range(len(split_betas)):
@@ -524,7 +541,8 @@ plt.xlabel(r'$\beta$')
 plt.ylabel(r'KL Loss')
 plt.title(args.img_title)
 plt.savefig(file_prefix +'KL.png')
-plt.show()
+#plt.show()
+plt.close()
 
 #fig = plt.figure()
 #y_pred ,z_mean, z_log_var, losses, _ = outs_array[0]
@@ -567,7 +585,8 @@ for j in range(len(split_betas)):
   sec_ax = ax.secondary_xaxis('top',functions=(beta_to_betap,betap_to_beta))
   plt.title(args.img_title)
   plt.savefig(file_prefix +'Ds_' + str(j) + '.png')
-  plt.show()
+  #plt.show()
+  plt.close()
   
 fig = plt.figure()
 for j in range(len(split_betas)):
@@ -582,7 +601,7 @@ ax = fig.axes[0]
 sec_ax = ax.secondary_xaxis('top',functions=(beta_to_betap,betap_to_beta))
 plt.title(args.img_title)
 plt.savefig(file_prefix +'Ds_all.png')
-plt.show()
-
+#plt.show()
+plt.close()
 
 print("Finished succesfully")

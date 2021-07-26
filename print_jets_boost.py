@@ -8,6 +8,9 @@ parser.add_argument('--img_prefix')
 parser.add_argument('--utils')
 parser.add_argument('--center',action="store_true")
 parser.add_argument('--parton',action="store_true")
+parser.add_argument('--numplotaxes',default=2,type=int)
+parser.add_argument('--setcode',default=None,type=int)
+parser.add_argument('--setcodeval',default=1,type=float)
 
 args = parser.parse_args()
 print(args)
@@ -499,138 +502,76 @@ plt.ylabel(r'$\left\langle \log \sigma_1 \right\rangle$')
 plt.savefig(file_prefix + plt_title + 'scatter_mu1sigma1.png')
 plt.show()
 
-narray = 11
-lim = 3.0
-codes = np.zeros((narray**2,latent_dim))
+narray = 9
+lim = 3.14
 
-dirs = [0,1]
-
-for i in range(narray):
-    for j in range(narray):
-        codes[narray*i+j,sort_kl[dirs[0]]] = (i-(narray-1)/2)*lim/((narray-1)/2)
-        codes[narray*i+j,sort_kl[dirs[1]]] = (j-(narray-1)/2)*lim/((narray-1)/2)
-
-decoded = decoder.predict(codes)
-
-fig, ax = plt.subplots(narray, narray,figsize=[15,15],sharex=True,sharey=True)
-plt.title(plt_title)
-for i in range(narray):
-    for j in range(narray):
-        outjet = decoded[narray*i+j,:,1:]
-        weights = decoded[narray*i+j,:,0]
-        pts, etas, phis = get_clustered_pt_eta_phi(weights, outjet,R=0.05)
-        x=codes[narray*i+j,sort_kl[dirs[0]]]
-        y=codes[narray*i+j,sort_kl[dirs[1]]]
-        if np.square(x) + np.square(y) > np.square(2.7):
-            ax[i,j].set_facecolor('xkcd:salmon')
-        ax[i,j].scatter(phis, etas, s = pts*100, alpha = 0.7,linewidths=0)
-        ax[i,j].set_xlim(-plotlim,plotlim)
-        ax[i,j].set_ylim(-plotlim,plotlim)
-        ax[i,j].set_title('['+'{:.1f}'.format(x)+','+'{:.1f}'.format(y)+']',
-                         y=0.8)
-#         ax[j,i].set_aspect('equal')
-ax[int((narray-1)/2),int((narray-1)/2)].set_facecolor([0.9,0.9,0.9])
-plt.subplots_adjust(wspace=0, hspace=0)
-plt.savefig(file_prefix + plt_title + 'jets_square_array_01.png')
-plt.show()
-
-
-if latent_dim > 4:
+for k in range(args.numplotaxes -1):
   codes = np.zeros((narray**2,latent_dim))
-  dirs = [2,3]
+
+  dirs = [0+k,1+k]
+
   for i in range(narray):
     for j in range(narray):
       codes[narray*i+j,sort_kl[dirs[0]]] = (i-(narray-1)/2)*lim/((narray-1)/2)
       codes[narray*i+j,sort_kl[dirs[1]]] = (j-(narray-1)/2)*lim/((narray-1)/2)
       
+  if (args.setcode is not None):
+    if (dirs[0] != args.setcode) and (dirs[1] != args.setcode):
+      print("Setting code to", args.setcodeval,"for dim", args.setcode)
+      codes[:,sort_kl[args.setcode]] = args.setcodeval
+      print(codes[0,sort_kl])
+
   decoded = decoder.predict(codes)
-      
-  fig, ax = plt.subplots(narray, narray,figsize=[15,15],sharex=True,sharey=True)
+
+  # fig, ax = plt.subplots(narray, narray,figsize=[15,15],sharex=True,sharey=True)
+  fig = plt.figure(figsize=[15,15])
   plt.title(plt_title)
+  if args.center:
+    circles = [[plt.Circle((i*2/(narray-1)*lim-lim, j*2/(narray-1)*lim-lim), 0.7/(narray-1)*lim,
+                       color='black',#[0.8,0.8,0.8],
+                       fill=False) for j in range(narray)] for i in range(narray)]
+
+  this = gaussian_kde([z_mean[:,sort_kl[dirs[0]]],z_mean[:,sort_kl[dirs[1]]]],bw_method=0.15)
+  xmin=-3.5
+  xmax=3.5
+  ymin=-3.5
+  ymax=3.5
+  X, Y = np.mgrid[xmin:xmax:100j, ymin:ymax:100j]
+  positions = np.vstack([X.ravel(), Y.ravel()])
+  Z = np.reshape(this(positions).T, X.shape)
+  #Z = np.reshape(this(positions).T, X.shape)
+  plt.contourf(X,Y,Z,[0.01,0.03,0.05,0.1,0.2,0.3],cmap='Blues',
+               vmax=0.4)
+  if args.center:
+    zoom = 1.
+  else:
+    zoom = 1/3.14
   for i in range(narray):
     for j in range(narray):
       outjet = decoded[narray*i+j,:,1:]
       weights = decoded[narray*i+j,:,0]
-      pts, etas, phis = get_clustered_pt_eta_phi(weights, outjet,R=0.025)
-      x=codes[narray*i+j,sort_kl[2]]
-      y=codes[narray*i+j,sort_kl[3]]
-      if np.square(x) + np.square(y) > np.square(2.7):
-        ax[i,j].set_facecolor('xkcd:salmon')
-      ax[i,j].scatter(phis, etas, s = pts*100, alpha = 0.7,linewidths=0)
-      ax[i,j].set_xlim(-plotlim,plotlim)
-      ax[i,j].set_ylim(-plotlim,plotlim)
-      ax[i,j].set_title('['+'{:.1f}'.format(x)+','+'{:.1f}'.format(y)+']',
-                        y=0.8)
-      #         ax[j,i].set_aspect('equal')
-  ax[int((narray-1)/2),int((narray-1)/2)].set_facecolor([0.9,0.9,0.9])
-  plt.subplots_adjust(wspace=0, hspace=0)
-  plt.savefig(file_prefix + plt_title + 'jets_square_array_23.png')
-  plt.show()
+      pts, etas, phis = get_clustered_pt_eta_phi(weights, outjet,R=0.075)
+      
+      plt.scatter((phis*zoom + 2.*i)/(narray-1)*lim-lim, (etas*zoom + 2.*j)/(narray-1)*lim-lim,
+                  s = pts*100, alpha = 1.,linewidths=0,color='tab:red')
+      if args.center:
+        plt.gcf().gca().add_artist(circles[i][j])
+        #         ax[i,j].set_title('['+'{:.1f}'.format(x)+','+'{:.1f}'.format(y)+']',
+        
+        #         ax[j,i].set_aspect('equal')
 
-outs_array = [vae.predict(valid_x[:10000]) for j in range(0)]
+    # ax[int((narray-1)/2)-1,int((narray-1)/2)+1].set_facecolor([0.9,0.9,0.9])
 
-narray = 9
-lim = 3.14
-codes = np.zeros((narray**2,latent_dim))
+  outer_plotlim = -(-0.5-(narray-1)/2)*lim/((narray-1)/2)
+  if not args.center:
+    plt.vlines(np.linspace(-outer_plotlim,outer_plotlim,narray+1)[1:-1],-outer_plotlim,outer_plotlim,colors='gray')
+    plt.hlines(np.linspace(-outer_plotlim,outer_plotlim,narray+1)[1:-1],-outer_plotlim,outer_plotlim,colors='gray')
+  plt.xlim([-outer_plotlim,outer_plotlim])
+  plt.ylim([-outer_plotlim,outer_plotlim])
 
-dirs = [0,1]
-
-for i in range(narray):
-    for j in range(narray):
-        codes[narray*i+j,sort_kl[dirs[0]]] = (i-(narray-1)/2)*lim/((narray-1)/2)
-        codes[narray*i+j,sort_kl[dirs[1]]] = (j-(narray-1)/2)*lim/((narray-1)/2)
-
-decoded = decoder.predict(codes)
-
-# fig, ax = plt.subplots(narray, narray,figsize=[15,15],sharex=True,sharey=True)
-fig = plt.figure(figsize=[15,15])
-plt.title(plt_title)
-if args.center:
-  circles = [[plt.Circle((i*2/(narray-1)*lim-lim, j*2/(narray-1)*lim-lim), 0.7/(narray-1)*lim,
-                       color='black',#[0.8,0.8,0.8],
-                       fill=False) for j in range(narray)] for i in range(narray)]
-
-this = gaussian_kde([z_mean[:,sort_kl[dirs[0]]],z_mean[:,sort_kl[dirs[1]]]],bw_method=0.15)
-xmin=-3.5
-xmax=3.5
-ymin=-3.5
-ymax=3.5
-X, Y = np.mgrid[xmin:xmax:100j, ymin:ymax:100j]
-positions = np.vstack([X.ravel(), Y.ravel()])
-Z = np.reshape(this(positions).T, X.shape)
-#Z = np.reshape(this(positions).T, X.shape)
-plt.contourf(X,Y,Z,[0.01,0.03,0.05,0.1,0.2,0.3],cmap='Blues',
-             vmax=0.4)
-if args.center:
-  zoom = 1.
-else:
-  zoom = 1/3.14
-for i in range(narray):
-    for j in range(narray):
-        outjet = decoded[narray*i+j,:,1:]
-        weights = decoded[narray*i+j,:,0]
-        pts, etas, phis = get_clustered_pt_eta_phi(weights, outjet,R=0.075)
-
-        plt.scatter((phis*zoom + 2.*i)/(narray-1)*lim-lim, (etas*zoom + 2.*j)/(narray-1)*lim-lim,
-                    s = pts*100, alpha = 1.,linewidths=0,color='tab:red')
-        if args.center:
-          plt.gcf().gca().add_artist(circles[i][j])
-#         ax[i,j].set_title('['+'{:.1f}'.format(x)+','+'{:.1f}'.format(y)+']',
-
-#         ax[j,i].set_aspect('equal')
-
-# ax[int((narray-1)/2)-1,int((narray-1)/2)+1].set_facecolor([0.9,0.9,0.9])
-
-outer_plotlim = -(-0.5-(narray-1)/2)*lim/((narray-1)/2)
-if not args.center:
-  plt.vlines(np.linspace(-outer_plotlim,outer_plotlim,narray+1)[1:-1],-outer_plotlim,outer_plotlim,colors='gray')
-  plt.hlines(np.linspace(-outer_plotlim,outer_plotlim,narray+1)[1:-1],-outer_plotlim,outer_plotlim,colors='gray')
-plt.xlim([-outer_plotlim,outer_plotlim])
-plt.ylim([-outer_plotlim,outer_plotlim])
-
-# plt.subplots_adjust(wspace=0, hspace=0)
-# plt.axis('off')
-plt.savefig(file_prefix + plt_title + 'jets_nice_array_01.png')
-plt.show()
+  # plt.subplots_adjust(wspace=0, hspace=0)
+  # plt.axis('off')
+  plt.savefig(file_prefix + plt_title + 'jets_nice_array_' + str(k) + str(k+1) + '.png')
+  plt.close()
 
 print('Finished succesfully')
