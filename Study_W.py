@@ -309,11 +309,17 @@ data[:,:,-1] = data[:,:,-1]/HT[:,None]
 if args.center:
   data = center_jets_ptetaphiE(data)
 
-sig_input = np.zeros((len(data),numparts,4))
-sig_input[:,:,:2] = data[:,:,:2]
-sig_input[:,:,2] = np.cos(data[:,:,2])
-sig_input[:,:,3] = np.sin(data[:,:,2])
-#sig_input[:,:,3] = np.log(data[:,:,3]+1e-8)
+if vae_arg_dict['num_inputs'] == 4:
+  sig_input = np.zeros((len(data),numparts,4))
+  sig_input[:,:,:2] = data[:,:,:2]
+  sig_input[:,:,2] = np.cos(data[:,:,2])
+  sig_input[:,:,3] = np.sin(data[:,:,2])
+else:
+  sig_input = np.zeros((len(data),numparts,5))
+  sig_input[:,:,:2] = data[:,:,:2]
+  sig_input[:,:,2] = np.cos(data[:,:,2])
+  sig_input[:,:,3] = np.sin(data[:,:,2])
+  sig_input[:,:,4] = np.log(data[:,:,3]+1e-8)
 
 data_x = sig_input
 data_y = data[:,:,:3]
