@@ -340,15 +340,14 @@ callbacks=[tf.keras.callbacks.CSVLogger(train_output_dir + '/log.csv', separator
            myTerminateOnNaN(),
            reset_metrics_inst]
 
-beta_set = np.logspace(-5,1,25)[:-3]
-betas = beta_set
+beta_set = np.logspace(-7,1,33)[:-3]
+betas = beta_set[8:]
 
-for i in range(0,16,2):
+for i in range(0,22,2):
   betas = np.append(betas, beta_set[-1-7-i:-1-i])
 
 last_run_i = len(betas)
 betas = np.append(betas, beta_set)
-
 
 print(betas)
 
