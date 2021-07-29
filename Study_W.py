@@ -410,7 +410,10 @@ for i, file in enumerate(files[start:]):
     
     losses += [result['loss'].numpy()]
     recons += [result['recon_loss'].numpy()]
-    KLs += [result['KL loss'].numpy()]
+    if use_vm:
+      KLs += [result['KL loss'].numpy() + result['KL VM loss'].numpy()]
+    else:
+      KLs += [result['KL loss'].numpy()]
 
 cmap = mpl.cm.get_cmap('viridis')
 
