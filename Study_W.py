@@ -422,6 +422,12 @@ print(losses)
 print(recons)
 print(KLs)
 
+np.savetxt(file_prefix + 'betas.dat',betas)
+np.savetxt(file_prefix + 'losses.dat',losses)
+np.savetxt(file_prefix + 'recons.dat',recons)
+np.savetxt(file_prefix + 'KLs.dat',KLs)
+np.savetxt(file_prefix + 'KLs_array.dat',KLs_array)
+
 ends = np.array([((betas[i+1] > betas[i]) and (betas[i] < betas[i-1])) or ((betas[i+1] < betas[i]) and (betas[i] > betas[i-1])) or (betas[i+1] == betas[i]) for i in range(1,len(betas)-1)])
 ends = np.argwhere(ends == True).flatten()+2
 ends = np.append(ends,len(betas))
