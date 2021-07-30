@@ -10,6 +10,7 @@ parser.add_argument('--img_prefix')
 parser.add_argument('--utils')
 parser.add_argument('--img_title')
 parser.add_argument('--center',action="store_true")
+parser.add_argument('--boost',action="store_true")
 parser.add_argument('--parton',action="store_true")
 parser.add_argument('--data_path',default='/scratch/jcollins')
 
@@ -125,6 +126,26 @@ def ptetaphiE_to_Epxpypz(jets):
     
     return newjets
 
+
+def Epxpypz_to_ptetaphiE(jets):
+
+  E = jets[:,:,0]
+  px = jets[:,:,1]
+  py = jets[:,:,2]
+  pz = jets[:,:,3]
+
+  pt = np.sqrt(np.square(px) + np.square(py))
+  phi = np.arctan2(py,px)
+  eta = np.arcsinh(pz/pt)
+
+  newjets = np.zeros(jets.shape)
+  newjets[:,:,0] = pt
+  newjets[:,:,1] = eta
+  newjets[:,:,2] = phi
+  newjets[:,:,3] = E
+
+  return newjets
+
 def ptetaphiE_to_ptyphim(jets):
     pt = jets[:,:,0]
     eta = jets[:,:,1]
@@ -164,17 +185,62 @@ def ptyphim_to_ptetaphiE(jets):
     newjets[:,:,3] = E
     
     return newjets
-    
-def center_jets_ptetaphiE(jets):
+
+if args.boost:    
+  def center_jets_ptetaphiE(jets):
     cartesian_jets = ptetaphiE_to_Epxpypz(jets)
     sumjet_cartesian = np.sum(cartesian_jets,axis=1)
-    
+    sumjet_phi = np.arctan2(sumjet_cartesian[:,2],sumjet_cartesian[:,1])
+
+    phi_rotated_jets = np.copy(jets)
+    phi_rotated_jets[:,:,2] = phi_rotated_jets[:,:,2] - sumjet_phi[:,None]
+    phi_rotated_jets[:,:,2] = phi_rotated_jets[:,:,2] + np.pi
+    phi_rotated_jets[:,:,2] = np.mod(phi_rotated_jets[:,:,2],2*np.pi)
+    phi_rotated_jets[:,:,2] = phi_rotated_jets[:,:,2] - np.pi
+
+    cartesian_jets = ptetaphiE_to_Epxpypz(phi_rotated_jets)
+    sumjet_cartesian = np.sum(cartesian_jets,axis=1)
+
+    E = sumjet_cartesian[:,0]
+    pt = np.sqrt(np.square(sumjet_cartesian[:,1]) + np.square(sumjet_cartesian[:,2]))
+    ptp = 550.
+    beta = (E*pt - ptp*np.sqrt(np.square(E) - np.square(pt) + np.square(ptp)))/(np.square(E) + np.square(ptp))
+    gamma = 1/np.sqrt(1-np.square(beta))
+
+    ptnews = gamma[:,None]*(cartesian_jets[:,:,1] - beta[:,None]*cartesian_jets[:,:,0])
+    Enews = gamma[:,None]*(cartesian_jets[:,:,0] - beta[:,None]*cartesian_jets[:,:,1])
+
+    cartesian_jets[:,:,0] = Enews
+    cartesian_jets[:,:,1] = ptnews
+    sumjet_cartesian = np.sum(cartesian_jets,axis=1)
+
+
+    sumjet_y = 0.5*np.log((sumjet_cartesian[:,0] + sumjet_cartesian[:,-1])/(sumjet_cartesian[:,0] - sumjet_cartesian[:,-1]))
+
+    newjets = Epxpypz_to_ptetaphiE(cartesian_jets)
+
+    ptyphim_jets = ptetaphiE_to_ptyphim(Epxpypz_to_ptetaphiE(cartesian_jets))
+    ptyphim_jets[:,:,-1] = np.zeros(np.shape(ptyphim_jets[:,:,-1]))
+    #print(ptyphim_jets[:3,:,:])
+
+    transformed_jets = np.copy(ptyphim_jets)
+    transformed_jets[:,:,1] = ptyphim_jets[:,:,1] - sumjet_y[:,None]
+
+    transformed_jets[transformed_jets[:,:,0] == 0] = 0
+
+    return ptyphim_to_ptetaphiE(transformed_jets)
+
+else:
+  def center_jets_ptetaphiE(jets):
+    cartesian_jets = ptetaphiE_to_Epxpypz(jets)
+    sumjet_cartesian = np.sum(cartesian_jets,axis=1)
+
     sumjet_phi = np.arctan2(sumjet_cartesian[:,2],sumjet_cartesian[:,1])
     sumjet_y = 0.5*np.log((sumjet_cartesian[:,0] + sumjet_cartesian[:,-1])/(sumjet_cartesian[:,0] - sumjet_cartesian[:,-1]))
-    
+
     ptyphim_jets = ptetaphiE_to_ptyphim(jets)
     #print(ptyphim_jets[:3,:,:])
-    
+
     transformed_jets = np.copy(ptyphim_jets)
     transformed_jets[:,:,1] = ptyphim_jets[:,:,1] - sumjet_y[:,None]
     transformed_jets[:,:,2] = ptyphim_jets[:,:,2] - sumjet_phi[:,None]
@@ -183,9 +249,10 @@ def center_jets_ptetaphiE(jets):
     transformed_jets[:,:,2] = transformed_jets[:,:,2] - np.pi
 
     transformed_jets[transformed_jets[:,:,0] == 0] = 0
-    
+
     newjets = ptyphim_to_ptetaphiE(transformed_jets)
     return newjets
+
 
 def kl_loss(z_mean, z_log_var):
     return -0.5 * (1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var))
@@ -301,13 +368,13 @@ print(df.shape)
 print("Memory in GB:",sum(df.memory_usage(deep=True)) / (1024**3)+sum(df.memory_usage(deep=True)) / (1024**3))
 
 data = df.values.reshape((-1,numparts,4))
+if args.center:
+  data = center_jets_ptetaphiE(data)
 
 HT = np.sum(data[:,:,0],axis=-1)
 data[:,:,0] = data[:,:,0]/HT[:,None]
 data[:,:,-1] = data[:,:,-1]/HT[:,None]
 
-if args.center:
-  data = center_jets_ptetaphiE(data)
 
 if vae_arg_dict['num_inputs'] == 4:
   sig_input = np.zeros((len(data),numparts,4))
@@ -461,9 +528,9 @@ fig=plt.figure()
 plt.plot(betas)
 plt.semilogy()
 plt.title(args.img_title)
-plt.savefig(file_prefix +'betas.png')
 plt.xlabel('Iteration')
 plt.ylabel(r'$\beta$')
+plt.savefig(file_prefix +'betas.png')
 #plt.show()
 plt.close()
 
@@ -477,9 +544,9 @@ for i in range(len(split_betas)):
   ax = fig.axes[0]
   sec_ax = ax.secondary_xaxis('top',functions=(beta_to_betap,betap_to_beta))
   plt.title(args.img_title)
-  plt.savefig(file_prefix +'all_KLs_' + str(i) + '.png')
   plt.xlabel(r'$\beta$')
   plt.ylabel('KL')
+  plt.savefig(file_prefix +'all_KLs_' + str(i) + '.png')
   #plt.show()
   plt.close()
 
