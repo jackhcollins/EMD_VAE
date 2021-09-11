@@ -13,6 +13,7 @@ parser.add_argument('--center',action="store_true")
 parser.add_argument('--boost',action="store_true")
 parser.add_argument('--parton',action="store_true")
 parser.add_argument('--data_path',default='/scratch/jcollins')
+parser.add_argument('--time_order',action="store_true")
 
 args = parser.parse_args()
 print(args)
@@ -431,10 +432,15 @@ epoch_string=re.compile('_\d*_')
 beta_string=re.compile('\d\.[\w\+-]*')
 files = glob.glob(train_output_dir + '/model_weights_end*.hdf5')
 
-epochs = np.array([get_epoch(model_file) for model_file in files])
-sorted_args = np.argsort(epochs)
-files = [files[index] for index in sorted_args]
-epochs = epochs[sorted_args]
+if args.time_order:
+  files.sort(key=os.path.getmtime)
+  epochs = np.array([get_epoch(model_file) for model_file in files])
+else:
+  epochs = np.array([get_epoch(model_file) for model_file in files])
+  sorted_args = np.argsort(epochs)
+  files = [files[index] for index in sorted_args]
+  epochs = epochs[sorted_args]
+
 
 print("Found files:")
 print(*files,sep='\n')
@@ -541,11 +547,15 @@ for i in range(len(split_betas)):
   for j in range(latent_dim_lin,latent_dim_lin + latent_dim_vm):
     plt.plot(split_betas[i],split_KLs_array[i][:,j],color='C1')
   plt.semilogx()
+  plt.xlim([1e-5,2.])
+  plt.ylim([None,12.])
   ax = fig.axes[0]
   sec_ax = ax.secondary_xaxis('top',functions=(beta_to_betap,betap_to_beta))
   plt.title(args.img_title)
   plt.xlabel(r'$\beta$')
   plt.ylabel('KL')
+  sec_ax.set_xlabel(r'$\hat{\beta}$  [GeV]')
+  plt.tight_layout()
   plt.savefig(file_prefix +'all_KLs_' + str(i) + '.png')
   #plt.show()
   plt.close()
@@ -663,9 +673,13 @@ for j in range(len(split_betas)):
   plt.plot(split_betas[j][:-1],D1,linestyle=style)
   plt.plot(split_betas[j][:-1],D2,linestyle=style)
   plt.ylim([0,10])
+  plt.xlim([1e-3,1.5])
   plt.semilogx()
   ax = fig.axes[0]
+  plt.xlabel(r'$\beta$')
+  plt.ylabel('Dimension')
   sec_ax = ax.secondary_xaxis('top',functions=(beta_to_betap,betap_to_beta))
+  sec_ax.set_xlabel(r'$\hat{\beta}$  [GeV]')
   plt.title(args.img_title)
   plt.savefig(file_prefix +'Ds_' + str(j) + '.png')
   #plt.show()
