@@ -13,7 +13,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('model_dir')
 parser.add_argument('--model_file','--model_fn')
 parser.add_argument('--parton',action='store_true')
-parser.add_argument('--data_path',default='/scratch/jcollins')
+parser.add_argument('--data_path',default='/sdf/group/ml/EMDVAE_representation_learning/')
 
 args = parser.parse_args()
 print(args)
@@ -395,6 +395,7 @@ for i in range(0,16,2):
 last_run_i = len(betas)
 betas = np.append(betas, beta_set)
 
+betas = np.append(betas, np.logspace(-5,1,25)[-3:])
 
 print(betas)
 
