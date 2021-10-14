@@ -3,6 +3,7 @@ import os
 import os.path as osp
 import sys
 import json
+import numpy as np
 
 parser = argparse.ArgumentParser(description='Plot VAE training info')
 parser.add_argument('model_dir')
@@ -12,6 +13,7 @@ parser.add_argument('--img_title')
 parser.add_argument('--center',action="store_true")
 parser.add_argument('--boost',action="store_true")
 parser.add_argument('--parton',action="store_true")
+parser.add_argument('--tj',action="store_true")
 parser.add_argument('--data_path',default='/scratch/jcollins')
 parser.add_argument('--time_order',action="store_true")
 
@@ -34,7 +36,20 @@ if 'latent_dim_vm' in vae_arg_dict:
 else:
   print("Not using VM mode")
   latent_dim_vm = 0
-latent_dim = latent_dim_lin + latent_dim_vm
+if 'cat_dim' in vae_arg_dict:
+  latent_dim_cat = vae_arg_dict['cat_dim']
+  use_cat = True
+  print("Using cat mode")
+  if 'cat_priors' in vae_arg_dict:
+    prob_a = np.array(vae_arg_dict['cat_priors'])
+    a = prob_a / (1-prob_a)
+  else:
+    prob_a = np.logspace(-3,np.log10(0.5),32)
+    a = prob_a / (1-prob_a)
+else:
+  print("Not using cat mode")
+  latent_dim_cat = 0
+latent_dim = latent_dim_lin + latent_dim_vm + latent_dim_cat
 
 if args.img_prefix:
   file_prefix = args.img_prefix
@@ -62,8 +77,6 @@ if gpus:
 import tensorflow.keras as keras
 import tensorflow.keras.backend as K
 
-import numpy as np
-#from scipy import linalg as LA
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -255,6 +268,17 @@ else:
     return newjets
 
 
+def kl_loss_bern_individual(r):
+  delta = 1-r
+  is_small = np.less(np.abs(delta), 1e-5)
+  default_return = (1+r)*np.log(r)/(r-1) - 2
+  return np.where(is_small,np.square(delta)/6,default_return)
+
+def kl_loss_bern(log_alpha_bern,a):
+  r = a/np.exp(log_alpha_bern)
+  kl_separate = kl_loss_bern_individual(r)
+  return kl_separate
+
 def kl_loss(z_mean, z_log_var):
     return -0.5 * (1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var))
     
@@ -315,9 +339,13 @@ def plot_KL_logvar(outs_array,xlim=None,ylim=None,showhist=False, numhists=10,hi
     if use_vm:
       y_pred ,z_mean, z_log_var, losses, _ = outs_array[0]
       KL = losses
+    elif use_cat:
+      y_pred ,z_mean, z_log_var, _, log_alpha_bern, _ = outs_array[0]
+
+      KL = np.concatenate((kl_loss(z_mean, z_log_var),kl_loss_bern(log_alpha_bern,a)),axis=-1)
     else:
       y_pred ,z_mean, z_log_var, _ = outs_array[0]
-      KL=kl_loss(z_mean, z_log_var)
+      KL = kl_loss(z_mean, z_log_var)
 
     sort_kl = np.flip(np.argsort(np.mean(KL,axis=0)))
 
@@ -327,7 +355,7 @@ def plot_KL_logvar(outs_array,xlim=None,ylim=None,showhist=False, numhists=10,hi
       plt.scatter(np.mean(KL[:,:latent_dim_lin],axis=0),rms_mean[:latent_dim_lin],s=5.)
       plt.scatter(np.mean(KL[:,latent_dim_lin:],axis=0),rms_mean[latent_dim_lin:],s=5.)
     else:
-      plt.scatter(np.mean(KL,axis=0),rms_mean,s=5.)
+      plt.scatter(np.mean(KL[:,:latent_dim_lin],axis=0),rms_mean,s=5.)
 
 
     if ylim:
@@ -358,6 +386,11 @@ if args.parton:
   numparts = 2
   numtrain = 1500000
   print("Using parton data")
+elif args.tj:
+  fn =  args.data_path + '/train_processed.h5'
+  numparts = 50
+  numtrain = 1000000
+  print("Using particle data")
 else:
   fn =  args.data_path + '/monoW-data-3.h5'
   numparts = 50
@@ -368,7 +401,13 @@ df = pandas.read_hdf(fn,stop=100000)
 print(df.shape)
 print("Memory in GB:",sum(df.memory_usage(deep=True)) / (1024**3)+sum(df.memory_usage(deep=True)) / (1024**3))
 
-data = df.values.reshape((-1,numparts,4))
+if args.tj:
+  data = df.values.reshape((-1,numparts,3))
+  E = data[:,:,0:1]*np.cosh(data[:,:,1:2])
+  data = np.concatenate((data,E),axis=-1)
+else:
+  data = df.values.reshape((-1,numparts,4))
+
 if args.center:
   data = center_jets_ptetaphiE(data)
 
@@ -425,11 +464,11 @@ def get_epoch(file):
     return epoch
 
 def get_beta(file):
-    beta = float(beta_string.search(file).group())
+    beta = float(beta_string.search(file).group()[1:])
     return beta
 
 epoch_string=re.compile('_\d*_')
-beta_string=re.compile('\d\.[\w\+-]*')
+beta_string=re.compile('_\d\.[\w\+-]*')
 files = glob.glob(train_output_dir + '/model_weights_end*.hdf5')
 
 if args.time_order:
@@ -469,6 +508,21 @@ for i, file in enumerate(files[start:]):
     if use_vm:
       _, z_mean, z_log_var, kllosses, z = outs_array[0]
       KLs_array[i] = np.mean(kllosses,axis=0)
+    elif use_cat:
+      y_pred ,z_mean, z_log_var, _, log_alpha_bern, _ = outs_array[0]
+
+      KLs_array[i] = np.mean(np.concatenate((kl_loss(z_mean, z_log_var),kl_loss_bern(log_alpha_bern,a)),axis=-1),axis=0)
+
+      fig = plt.figure()
+      plt.scatter(a,np.mean(kl_loss_bern(log_alpha_bern,prob_a),axis=0))
+      plt.semilogx()
+      plt.title('Epoch: ' + str(epochs[i+start]) + ', beta: ' + str(betas[i+start]))
+      plt.xlabel('Prior')
+      plt.ylabel('KL')
+      plt.tight_layout()
+      plt.savefig(file_prefix + 'KL_scatter_cat_' + str(i) + '_'+ str(betas[i+start]) + '.png')
+      plt.close()
+
     else:
       _, z_mean, z_log_var, z = outs_array[0]
       KLs_array[i] = np.mean(kl_loss(z_mean, z_log_var),axis=0)
@@ -479,12 +533,15 @@ for i, file in enumerate(files[start:]):
     plt.savefig(file_prefix + 'KL_scatter_' + str(i) + '_'+ str(betas[i+start]) + '.png')
     #plt.show()
     plt.close()
+
     result = vae.test_step([valid_x[:2000].astype(np.float32),valid_y[:2000].astype(np.float32)])
     
     losses += [result['loss'].numpy()]
     recons += [result['recon_loss'].numpy()]
     if use_vm:
       KLs += [result['KL loss'].numpy() + result['KL VM loss'].numpy()]
+    elif use_cat:
+      KLs += [result['KL loss'].numpy() + result['KL bern loss'].numpy()]
     else:
       KLs += [result['KL loss'].numpy()]
 
@@ -546,6 +603,8 @@ for i in range(len(split_betas)):
     plt.plot(split_betas[i],split_KLs_array[i][:,j],color='C0')
   for j in range(latent_dim_lin,latent_dim_lin + latent_dim_vm):
     plt.plot(split_betas[i],split_KLs_array[i][:,j],color='C1')
+  for j in range(latent_dim_lin + latent_dim_vm, latent_dim_lin + latent_dim_vm + latent_dim_cat):
+    plt.plot(split_betas[i],split_KLs_array[i][:,j],color='C2')
   plt.semilogx()
   plt.xlim([1e-5,2.])
   plt.ylim([None,12.])
@@ -614,6 +673,7 @@ sec_ax = ax.secondary_xaxis('top',functions=(beta_to_betap,betap_to_beta))
 #plt.ylim(1e-4,None)
 #plt.xlim(1e-2,1.)
 plt.title(args.img_title)
+plt.tight_layout()
 plt.savefig(file_prefix +'reconloss.png')
 #plt.show()
 plt.close()
@@ -636,6 +696,8 @@ plt.title(args.img_title)
 plt.savefig(file_prefix +'KL.png')
 #plt.show()
 plt.close()
+
+
 
 #fig = plt.figure()
 #y_pred ,z_mean, z_log_var, losses, _ = outs_array[0]
