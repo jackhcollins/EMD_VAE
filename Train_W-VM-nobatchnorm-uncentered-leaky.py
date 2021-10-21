@@ -14,6 +14,7 @@ parser.add_argument('model_dir')
 parser.add_argument('--model_file','--model_fn')
 parser.add_argument('--parton',action='store_true')
 parser.add_argument('--data_path',default='/sdf/group/ml/EMDVAE_representation_learning/')
+parser.add_argument('--time_order',action="store_true")
 
 args = parser.parse_args()
 print(args)
@@ -24,9 +25,9 @@ vae_args_file = model_dir + "/vae_args.dat"
 
 
 if args.model_file == 'last':
-  unordered_files = glob.glob(model_dir + '/model_weights_end*.hdf5')
+  files = glob.glob(model_dir + '/model_weights_end*.hdf5')
 
-  start_i = len(unordered_files)
+  start_i = len(files)
   def get_epoch(file):
     epoch = int(epoch_string.search(file).group()[1:-1])
     return epoch
@@ -38,10 +39,15 @@ if args.model_file == 'last':
   epoch_string=re.compile('_\d*_')
   beta_string=re.compile('\d\.[\w\+-]*')
 
-  epochs = np.array([get_epoch(fn) for fn in unordered_files])
-  ordering = np.argsort(epochs)
-  print(ordering)
-  files = [unordered_files[i] for i in ordering]
+  if args.time_order:
+    files.sort(key=os.path.getmtime)
+    epochs = np.array([get_epoch(model_file) for model_file in files])
+  else:
+    epochs = np.array([get_epoch(model_file) for model_file in files])
+    sorted_args = np.argsort(epochs)
+    files = [files[index] for index in sorted_args]
+    epochs = epochs[sorted_args]
+
   model_file = files[-1]
   last_save = model_file
   init_epoch = get_epoch(model_file)
@@ -389,12 +395,18 @@ else:
 beta_set = np.logspace(-5,1,25)[:-3]
 betas = beta_set
 
-for i in range(0,16,2):
-  betas = np.append(betas, beta_set[-1-5-i:-1-i])
+for i in range(0,8,2):
+  betas = np.append(betas, beta_set[-1-7-i:-1-i])
+
+i=8
+betas = np.append(betas, beta_set[-1-7-i:-1-i+4])
+
+for i in range(6,16,2):
+  betas = np.append(betas, beta_set[-1-7-i:-1-i])
+
 
 last_run_i = len(betas)
 betas = np.append(betas, beta_set)
-
 betas = np.append(betas, np.logspace(-5,1,25)[-3:])
 
 print(betas)

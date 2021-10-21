@@ -14,8 +14,9 @@ parser.add_argument('--center',action="store_true")
 parser.add_argument('--boost',action="store_true")
 parser.add_argument('--parton',action="store_true")
 parser.add_argument('--tj',action="store_true")
-parser.add_argument('--data_path',default='/scratch/jcollins')
+parser.add_argument('--data_path',default='/sdf/group/ml/EMDVAE_representation_learning/')
 parser.add_argument('--time_order',action="store_true")
+parser.add_argument('--top',action="store_true")
 
 args = parser.parse_args()
 print(args)
@@ -29,6 +30,7 @@ print("\n\n vae_arg_dict:", vae_arg_dict)
 
 latent_dim_lin = vae_arg_dict['latent_dim']
 use_vm = False
+use_cat = False
 if 'latent_dim_vm' in vae_arg_dict:
   latent_dim_vm = vae_arg_dict['latent_dim_vm']
   use_vm = True
@@ -90,7 +92,7 @@ from utils.tf_sinkhorn import ground_distance_tf_nograd, sinkhorn_knopp_tf_scali
 import pandas
 
 #import h5py
-#import pickle
+import pickle
 #from scipy.stats import gaussian_kde
 
 from pyjet import cluster
@@ -391,6 +393,11 @@ elif args.tj:
   numparts = 50
   numtrain = 1000000
   print("Using particle data")
+elif args.top:
+  fn =  args.data_path + '/t-data.h5'
+  numparts = 50
+  numtrain = 500000
+  print("Using top data")
 else:
   fn =  args.data_path + '/monoW-data-3.h5'
   numparts = 50
@@ -402,9 +409,8 @@ print(df.shape)
 print("Memory in GB:",sum(df.memory_usage(deep=True)) / (1024**3)+sum(df.memory_usage(deep=True)) / (1024**3))
 
 if args.tj:
-  data = df.values.reshape((-1,numparts,3))
-  E = data[:,:,0:1]*np.cosh(data[:,:,1:2])
-  data = np.concatenate((data,E),axis=-1)
+  data = df.values[:,1:].reshape((-1,numparts,4))
+  data[data == 1e5] = 0
 else:
   data = df.values.reshape((-1,numparts,4))
 
@@ -514,7 +520,7 @@ for i, file in enumerate(files[start:]):
       KLs_array[i] = np.mean(np.concatenate((kl_loss(z_mean, z_log_var),kl_loss_bern(log_alpha_bern,a)),axis=-1),axis=0)
 
       fig = plt.figure()
-      plt.scatter(a,np.mean(kl_loss_bern(log_alpha_bern,prob_a),axis=0))
+      plt.scatter(prob_a,np.mean(kl_loss_bern(log_alpha_bern,a),axis=0))
       plt.semilogx()
       plt.title('Epoch: ' + str(epochs[i+start]) + ', beta: ' + str(betas[i+start]))
       plt.xlabel('Prior')
@@ -762,5 +768,8 @@ plt.title(args.img_title)
 plt.savefig(file_prefix +'Ds_all.png')
 #plt.show()
 plt.close()
+
+pickle.dump( D1s, open(file_prefix + "D1s.p", "wb" ) )
+pickle.dump( D2s, open(file_prefix + "D2s.p", "wb" ) )
 
 print("Finished succesfully")

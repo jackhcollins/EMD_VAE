@@ -348,7 +348,7 @@ for i in range(0,16,2):
 
 last_run_i = len(betas)
 betas = np.append(betas, beta_set)
-
+betas = np.append(betas,np.logspace(-5,1,25)[-3:])
 
 print(betas)
 

@@ -6,6 +6,7 @@ import argparse
 import glob
 import re
 import gc
+import numpy as np
 
 parser = argparse.ArgumentParser()
 parser.add_argument('model_dir')
@@ -14,6 +15,8 @@ parser.add_argument('--parton',action='store_true')
 parser.add_argument('--data_path',default='/scratch/jcollins')
 parser.add_argument('--center',action='store_true')
 parser.add_argument('--alpha',default=1.,type=float)
+parser.add_argument('--time_order',action="store_true")
+parser.add_argument('--maxepochs',default=50,type=int)
 
 args = parser.parse_args()
 print(args)
@@ -25,12 +28,6 @@ start_i = 0
 end_dropout = 120
 if args.model_file == 'last':
   files = glob.glob(model_dir + '/model_weights_end*.hdf5')
-  files.sort(key=os.path.getmtime)
-  model_file = files[-1]
-  with open(vae_args_file,'r') as f:
-    vae_arg_dict = json.loads(f.read())
-
-  print("\n\n vae_arg_dict:", vae_arg_dict)
 
   import re
   start_i = len(files)
@@ -44,6 +41,21 @@ if args.model_file == 'last':
 
   epoch_string=re.compile('_\d*_')
   beta_string=re.compile('\d\.[\w\+-]*')
+
+  if args.time_order:
+    files.sort(key=os.path.getmtime)
+    epochs = np.array([get_epoch(model_file) for model_file in files])
+  else:
+    epochs = np.array([get_epoch(model_file) for model_file in files])
+    sorted_args = np.argsort(epochs)
+    files = [files[index] for index in sorted_args]
+    epochs = epochs[sorted_args]
+
+  model_file = files[-1]
+  with open(vae_args_file,'r') as f:
+    vae_arg_dict = json.loads(f.read())
+
+  print("\n\n vae_arg_dict:", vae_arg_dict)
 
   init_epoch = get_epoch(model_file)
 
@@ -78,8 +90,6 @@ if gpus:
 
 import tensorflow.keras as keras
 import tensorflow.keras.backend as K
-
-import numpy as np
 
 from utils.tf_sinkhorn import ground_distance_tf_nograd, sinkhorn_knopp_tf_scaling_stabilized_class
 import utils.VAE_model_tools_cat
@@ -156,6 +166,7 @@ def ptetaphiE_to_ptyphim(jets):
     
     msqr = np.square(E)-np.square(pt)-np.square(pz)
     msqr[np.abs(msqr) < 1e-6] = 0
+    msqr[msqr < 0.] = 0
     m = np.sqrt(msqr)
     
     newjets = np.zeros(jets.shape)
@@ -218,10 +229,10 @@ df = pandas.read_hdf(fn,stop=1100000)
 print(df.shape)
 print("Memory in GB:",sum(df.memory_usage(deep=True)) / (1024**3)+sum(df.memory_usage(deep=True)) / (1024**3))
 
-data = df.values.reshape((-1,numparts,3))
-
-E = data[:,:,0:1]*np.cosh(data[:,:,1:2])
-data = np.concatenate((data,E),axis=-1) 
+data = df.values[:,1:].reshape((-1,numparts,4))
+data[data == 1e5] = 0
+#E = data[:,:,0:1]*np.cosh(data[:,:,1:2])
+#data = np.concatenate((data,E),axis=-1) 
 
 if args.center:
   data = center_jets_ptetaphiE(data)
@@ -279,8 +290,8 @@ if model_file is None:
                     "latent_dim": 256,
                     "verbose": 1,
                     "dropout": 0.,
-                    "cat_dim": 16,#32}
-                    "cat_priors": list(np.ones(16)*0.5)}
+                    "cat_dim": 4,#}
+                    "cat_priors": list(np.logspace(np.log10(0.5)-3,np.log10(0.5),4))}
 
     print("Saving vae_arg_dict to",vae_args_file)
     print("\n",vae_arg_dict)
@@ -313,7 +324,7 @@ callbacks=[tf.keras.callbacks.CSVLogger(train_output_dir + '/log.csv', separator
            myTerminateOnNaN(),
            reset_metrics_inst]
 
-beta_set = np.logspace(-5,1,21)[:-6]
+beta_set = np.logspace(-5,1,25)[:-7]
 betas = beta_set
 
 for i in range(0,10,2):
@@ -329,7 +340,7 @@ steps_per_epoch = 1000
 save_period = 10
 nan_counter = 0
 
-max_epoch_per_step = 50
+max_epoch_per_step = args.maxepochs
 #switch_max_epochs = len(beta_set_init)
 
 vae.alpha.assign(args.alpha)

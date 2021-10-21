@@ -59,7 +59,7 @@ class betaVAEModel(keras.Model):
             KL_loss = self.KL_loss(z_mean, z_log_var)
             KL_loss_bern = self.KL_loss_bern(log_alpha_bern)
 
-            loss = recon_loss/(tf.square(self.beta)) + KL_loss + self.alpha*KL_loss_bern
+            loss = recon_loss/(2*tf.square(self.beta)) + KL_loss + self.alpha*KL_loss_bern
 
 
         # Compute gradients
@@ -93,7 +93,11 @@ class betaVAEModel(keras.Model):
         KL_loss = self.KL_loss(z_mean, z_log_var)
         KL_loss_bern = self.KL_loss_bern(log_alpha_bern)
 
-        loss_tracker.update_state(recon_loss/tf.square(self.beta) + KL_loss + self.alpha*KL_loss_bern)
+        loss_tracker.reset_states()
+        recon_loss_tracker.reset_states()
+        KL_loss_tracker.reset_states()
+
+        loss_tracker.update_state(recon_loss/(2*tf.square(self.beta)) + KL_loss + self.alpha*KL_loss_bern)
         recon_loss_tracker.update_state(recon_loss)
         KL_loss_tracker.update_state(KL_loss)
         KL_bern_loss_tracker.update_state(KL_loss_bern)
