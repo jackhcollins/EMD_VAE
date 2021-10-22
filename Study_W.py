@@ -514,7 +514,7 @@ for i, file in enumerate(files[start:]):
         print("Loading file", str(i), "of", str(len(files[start:])))
     vae.load_weights(file)
     vae.beta.assign(betas[i+start])
-    outs_array = [vae.predict(valid_x[:1000]) for j in range(1)]
+    outs_array = [vae.predict(train_x[:1000]) for j in range(1)]
 
     if use_vm:
       _, z_mean, z_log_var, kllosses, z = outs_array[0]
@@ -538,7 +538,7 @@ for i, file in enumerate(files[start:]):
       sort_kl_bern = np.argsort(np.mean(kl_loss_bern(log_alpha_bern,a),axis=0))
       plt.hist(log_alpha_bern[tops[:1000],sort_kl_bern[0]],bins = np.linspace(-15,15,100),histtype='step')
       plt.hist(log_alpha_bern[js[:1000],sort_kl_bern[0]],bins = np.linspace(-15,15,100),histtype='step')
-      plt.title('Epoch: ' + str(epochs[i+start]) + ', beta: ' + str(betas[i+start]))
+      plt.title('Epoch: ' + str(epochs[i+start]) + ', beta: ' + str(betas[i+start]), ', prior:', a[sort_kl_bern[0]])
       plt.xlabel('Log Alpha')
       plt.tight_layout()
       plt.savefig(file_prefix + 'cathist_' + str(i) + '_'+ str(betas[i+start]) + '.png')
