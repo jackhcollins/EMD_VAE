@@ -380,7 +380,9 @@ def plot_KL_logvar(outs_array,xlim=None,ylim=None,showhist=False, numhists=10,hi
     
     return sort_kl
 
-
+def lab_to_p(lab):
+  alpha = np.exp(lab)
+  return alpha / (1+alpha)
 
 # path to file
 if args.parton:
@@ -411,6 +413,9 @@ print("Memory in GB:",sum(df.memory_usage(deep=True)) / (1024**3)+sum(df.memory_
 if args.tj:
   data = df.values[:,1:].reshape((-1,numparts,4))
   data[data == 1e5] = 0
+  labels = df.values[:,0]
+  tops = labels == 1
+  js = labels == 0
 else:
   data = df.values.reshape((-1,numparts,4))
 
@@ -529,6 +534,16 @@ for i, file in enumerate(files[start:]):
       plt.savefig(file_prefix + 'KL_scatter_cat_' + str(i) + '_'+ str(betas[i+start]) + '.png')
       plt.close()
 
+      fig = plt.figure()
+      sort_kl_bern = np.argsort(np.mean(kl_loss_bern(log_alpha_bern,a),axis=0))
+      plt.hist(log_alpha_bern[tops[:1000],sort_kl_bern[0]],bins = np.linspace(-15,15,100),histtype='step')
+      plt.hist(log_alpha_bern[js[:1000],sort_kl_bern[0]],bins = np.linspace(-15,15,100),histtype='step')
+      plt.title('Epoch: ' + str(epochs[i+start]) + ', beta: ' + str(betas[i+start]))
+      plt.xlabel('Log Alpha')
+      plt.tight_layout()
+      plt.savefig(file_prefix + 'cathist_' + str(i) + '_'+ str(betas[i+start]) + '.png')
+      plt.close()
+      
     else:
       _, z_mean, z_log_var, z = outs_array[0]
       KLs_array[i] = np.mean(kl_loss(z_mean, z_log_var),axis=0)
