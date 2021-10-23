@@ -535,7 +535,7 @@ for i, file in enumerate(files[start:]):
       plt.close()
 
       fig = plt.figure()
-      sort_kl_bern = np.argsort(np.mean(kl_loss_bern(log_alpha_bern,a),axis=0))
+      sort_kl_bern = np.flip(np.argsort(np.mean(kl_loss_bern(log_alpha_bern,a),axis=0)))
       plt.hist(log_alpha_bern[tops[:1000],sort_kl_bern[0]],bins = np.linspace(-15,15,100),histtype='step')
       plt.hist(log_alpha_bern[js[:1000],sort_kl_bern[0]],bins = np.linspace(-15,15,100),histtype='step')
       plt.title('Epoch: ' + str(epochs[i+start]) + ', beta: ' + str(betas[i+start]) + ', prior:' + a[sort_kl_bern[0]])
