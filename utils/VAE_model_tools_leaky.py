@@ -34,6 +34,7 @@ class betaVAEModel(keras.Model):
                 weighted_metrics=None,
                 recon_loss=None,
                 KL_loss=None,
+                square_beta = True,
                 **kwargs):
 
         self.compile(optimizer=optimizer,
@@ -46,12 +47,16 @@ class betaVAEModel(keras.Model):
         self.recon_loss = recon_loss
         self.KL_loss = KL_loss
         self.beta = tf.Variable(1.,trainable=False, name="beta")
-
+        self.square_beta = square_beta
 
 
     @tf.function
     def train_step(self, data):
         x, y = data
+        if self.square_beta:
+            rescale = 2*tf.square(self.beta)
+        else:
+            rescale = self.beta
 
         with tf.GradientTape() as tape:
             y_pred ,z_mean, z_log_var, z = self(x, training=True)  # Forward pass
@@ -59,7 +64,7 @@ class betaVAEModel(keras.Model):
             recon_loss = self.recon_loss(y, y_pred)
             KL_loss = self.KL_loss(z_mean, z_log_var)
 
-            loss = recon_loss/(2*tf.square(self.beta)) + KL_loss
+            loss = recon_loss/rescale + KL_loss
 
 
         # Compute gradients
@@ -83,6 +88,11 @@ class betaVAEModel(keras.Model):
     def test_step(self, data):
         # Unpack the data
         x, y = data
+        if self.square_beta:
+            rescale = 2*tf.square(self.beta)
+        else:
+            rescale = self.beta
+
         # Compute predictions
         y_pred ,z_mean, z_log_var, z = self(x, training=False)  # Forward pass
         # Compute our own loss
@@ -93,7 +103,7 @@ class betaVAEModel(keras.Model):
         recon_loss_tracker.reset_states()
         KL_loss_tracker.reset_states()
         
-        loss_tracker.update_state(recon_loss/(2*tf.square(self.beta)) + KL_loss)
+        loss_tracker.update_state(recon_loss/rescale + KL_loss)
         recon_loss_tracker.update_state(recon_loss)
         KL_loss_tracker.update_state(KL_loss)
 
@@ -123,6 +133,7 @@ def build_and_compile_annealing_vae(encoder_conv_layers = [256,256,256,256],
                                     num_particles_in = 100,
                                     check_err_period = 10,
                                     num_inputs = 4,
+                                    exponent = 1,
                                     **kwargs):
 
   
@@ -227,7 +238,7 @@ def build_and_compile_annealing_vae(encoder_conv_layers = [256,256,256,256],
         def return_loss(pt_out, x_out):
 
             epsilon = np.float64(1e-10)
-            ground_distance = ground_distance_tf_nograd(x_in,x_out)
+            ground_distance = tf.pow(ground_distance_tf_nograd(x_in,x_out),exponent)
 
             match = sinkhorn_knopp_tf_inst(pt_in, pt_out, tf.stop_gradient(ground_distance))        
             recon_loss = tf.linalg.trace(tf.matmul(tf.stop_gradient(tf.cast(match,tf.float32)),ground_distance,transpose_b=True))
@@ -269,8 +280,10 @@ def build_and_compile_annealing_vae(encoder_conv_layers = [256,256,256,256],
         x_out = x_decoded_mean[:,:,1:]
         pt_in = x[:,:,0]
         x_in = x[:,:,1:]
-        return tf.reduce_mean(tf.square(return_return_loss(pt_out, x_out, pt_in, x_in)),axis=0)
-
+        if exponent == 1:
+            return tf.reduce_mean(tf.square(return_return_loss(pt_out, x_out, pt_in, x_in)),axis=0)
+        else:
+            return tf.reduce_mean(return_return_loss(pt_out, x_out, pt_in, x_in),axis=0)
 
     @tf.function
     def kl_loss(z_mean, z_log_var):
@@ -281,11 +294,15 @@ def build_and_compile_annealing_vae(encoder_conv_layers = [256,256,256,256],
     a = prob_a / (1-prob_a)
 
 
-
+    if exponent == 1.0:
+        square_beta = True
+    else:
+        square_beta = False
     
     vae.betaVAE_compile(recon_loss=recon_loss,
                         KL_loss = kl_loss,
-                        optimizer=optimizer,experimental_run_tf_function=False#,
+                        optimizer=optimizer,experimental_run_tf_function=False,
+                        square_beta = square_beta#,
                         #metrics = [recon_loss,kl_loss(beta_input), kl_loss_bern(beta_input)]
                        )
     
