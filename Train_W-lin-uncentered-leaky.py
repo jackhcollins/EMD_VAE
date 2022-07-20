@@ -13,6 +13,7 @@ parser.add_argument('model_dir')
 parser.add_argument('--model_file','--model_fn')
 parser.add_argument('--parton',action='store_true')
 parser.add_argument('--data_path',default='/scratch/jcollins')
+parser.add_argument('--exponent',default=1.,type=float)
 
 args = parser.parse_args()
 print(args)
@@ -111,129 +112,6 @@ def create_dir(dir_path):
 
 model_dir = create_dir(model_dir)
 
-def ptetaphiE_to_Epxpypz(jets):
-    pt = jets[:,:,0]
-    eta = jets[:,:,1]
-    phi = jets[:,:,2]
-    E = jets[:,:,3]
-    
-    px = pt * np.cos(phi)
-    py = pt * np.sin(phi)
-    pz = pt * np.sinh(eta)
-    
-    newjets = np.zeros(jets.shape)
-    newjets[:,:,0] = E
-    newjets[:,:,1] = px
-    newjets[:,:,2] = py
-    newjets[:,:,3] = pz
-    
-    return newjets
-
-
-def Epxpypz_to_ptetaphiE(jets):
-
-  E = jets[:,:,0]
-  px = jets[:,:,1]
-  py = jets[:,:,2]
-  pz = jets[:,:,3]
-
-  pt = np.sqrt(np.square(px) + np.square(py))
-  phi = np.arctan2(py,px)
-  eta = np.arcsinh(pz/pt)
-
-  newjets = np.zeros(jets.shape)
-  newjets[:,:,0] = pt
-  newjets[:,:,1] = eta
-  newjets[:,:,2] = phi
-  newjets[:,:,3] = E
-
-  return newjets
-
-def ptetaphiE_to_ptyphim(jets):
-    pt = jets[:,:,0]
-    eta = jets[:,:,1]
-    phi = jets[:,:,2]
-    E = jets[:,:,3]
-    
-    pz = pt * np.sinh(eta)
-    y = 0.5*np.nan_to_num(np.log((E+pz)/(E-pz)))
-    
-    msqr = np.square(E)-np.square(pt)-np.square(pz)
-    msqr[np.abs(msqr) < 1e-6] = 0
-    m = np.sqrt(msqr)
-    
-    newjets = np.zeros(jets.shape)
-    newjets[:,:,0] = pt
-    newjets[:,:,1] = y
-    newjets[:,:,2] = phi
-    newjets[:,:,3] = m
-    
-    return newjets
-    
-def ptyphim_to_ptetaphiE(jets):
-    
-    pt = jets[:,:,0]
-    y = jets[:,:,1]
-    phi = jets[:,:,2]
-    m = jets[:,:,3]
-    
-    eta = np.nan_to_num(np.arcsinh(np.sinh(y)*np.sqrt(1+np.square(m/pt))))
-    pz = pt * np.sinh(eta)
-    E = np.sqrt(np.square(pz)+np.square(pt)+np.square(m))
-    
-    newjets = np.zeros(jets.shape)
-    newjets[:,:,0] = pt
-    newjets[:,:,1] = eta
-    newjets[:,:,2] = phi
-    newjets[:,:,3] = E
-    
-    return newjets
-    
-def center_jets_ptetaphiE(jets):
-    cartesian_jets = ptetaphiE_to_Epxpypz(jets)
-    sumjet_cartesian = np.sum(cartesian_jets,axis=1)
-    sumjet_phi = np.arctan2(sumjet_cartesian[:,2],sumjet_cartesian[:,1])
-
-    phi_rotated_jets = np.copy(jets)
-    phi_rotated_jets[:,:,2] = phi_rotated_jets[:,:,2] - sumjet_phi[:,None]
-    phi_rotated_jets[:,:,2] = phi_rotated_jets[:,:,2] + np.pi
-    phi_rotated_jets[:,:,2] = np.mod(phi_rotated_jets[:,:,2],2*np.pi)
-    phi_rotated_jets[:,:,2] = phi_rotated_jets[:,:,2] - np.pi
-
-    cartesian_jets = ptetaphiE_to_Epxpypz(phi_rotated_jets)
-    sumjet_cartesian = np.sum(cartesian_jets,axis=1)
-
-    E = sumjet_cartesian[:,0]
-    pt = np.sqrt(np.square(sumjet_cartesian[:,1]) + np.square(sumjet_cartesian[:,2]))
-    ptp = 550.
-    beta = (E*pt - ptp*np.sqrt(np.square(E) - np.square(pt) + np.square(ptp)))/(np.square(E) + np.square(ptp)) 
-    gamma = 1/np.sqrt(1-np.square(beta))
-
-    ptnews = gamma[:,None]*(cartesian_jets[:,:,1] - beta[:,None]*cartesian_jets[:,:,0])
-    Enews = gamma[:,None]*(cartesian_jets[:,:,0] - beta[:,None]*cartesian_jets[:,:,1])
-
-    cartesian_jets[:,:,0] = Enews
-    cartesian_jets[:,:,1] = ptnews
-    sumjet_cartesian = np.sum(cartesian_jets,axis=1)
-
-
-    sumjet_y = 0.5*np.log((sumjet_cartesian[:,0] + sumjet_cartesian[:,-1])/(sumjet_cartesian[:,0] - sumjet_cartesian[:,-1]))
-
-    newjets = Epxpypz_to_ptetaphiE(cartesian_jets)
-    
-    ptyphim_jets = ptetaphiE_to_ptyphim(Epxpypz_to_ptetaphiE(cartesian_jets))
-    ptyphim_jets[:,:,-1] = np.zeros(np.shape(ptyphim_jets[:,:,-1]))
-    #print(ptyphim_jets[:3,:,:])
-    
-    transformed_jets = np.copy(ptyphim_jets)
-    transformed_jets[:,:,1] = ptyphim_jets[:,:,1] - sumjet_y[:,None]
-
-    transformed_jets[transformed_jets[:,:,0] == 0] = 0
-    
-    return ptyphim_to_ptetaphiE(transformed_jets)
-    
-
-    # path to file
 if args.parton:
   fn =  args.data_path + '/monoW-data-parton.h5'
   numparts = 2
@@ -307,7 +185,8 @@ if model_file is None:
                     "num_particles_in": numparts,
                     "latent_dim": 256,
                     "verbose": 1,
-                    "dropout": 0.}
+                    "dropout": 0.,
+                    "exponent": args.exponent}
 
     print("Saving vae_arg_dict to",vae_args_file)
     print("\n",vae_arg_dict)

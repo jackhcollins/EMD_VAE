@@ -14,13 +14,14 @@ parser.add_argument('--parton',action='store_true')
 parser.add_argument('--data_path',default='/scratch/jcollins')
 parser.add_argument('--center',action='store_true')
 parser.add_argument('--beta',default=1.,type=float)
+parser.add_argument('--init_epoch',default=0,type=int)
 
 args = parser.parse_args()
 print(args)
 model_dir = args.model_dir
 vae_args_file = model_dir + "/vae_args.dat"
 
-init_epoch=0
+init_epoch=args.init_epoch
 start_i = 0
 end_dropout = 120
 if args.model_file == 'last':
@@ -312,7 +313,9 @@ callbacks=[tf.keras.callbacks.CSVLogger(train_output_dir + '/log.csv', separator
            myTerminateOnNaN(),
            reset_metrics_inst]
 
-alphas = np.logspace(-2,1,10)
+
+alpha0 = np.logspace(-2,0,7)[-2]
+alphas = np.logspace(np.log10(alpha0),0,5)[1:]
 last_run_i = len(alphas)
 
 
